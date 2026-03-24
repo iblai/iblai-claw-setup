@@ -6,7 +6,7 @@
 
 Connect self-hosted claw servers (OpenClaw, NVIDIA NemoClaw) to the [ibl.ai](https://ibl.ai) platform. Run your own AI agent infrastructure and manage it through ibl.ai's APIs and applications.
 
-[![OpenClaw](https://img.shields.io/badge/OpenClaw-supported-4A90D9?logo=data:image/svg+xml;base64,&logoColor=white)](#)
+[![OpenClaw](https://img.shields.io/badge/OpenClaw-supported-4A90D9?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48dGV4dCB5PSI3NSIgZm9udC1zaXplPSI4MCI+8J+mnjwvdGV4dD48L3N2Zz4=)](#)
 [![NemoClaw](https://img.shields.io/badge/NemoClaw-supported-76B900?logo=nvidia&logoColor=white)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -22,6 +22,18 @@ This repository provides step-by-step guides for two things:
 2. **[Platform Integration](docs/platform-integration.md)** -- Connect your claw server to ibl.ai and manage it through the platform's APIs and applications
 
 Once connected, your claw instance is accessible from all ibl.ai applications -- Mentor AI, Skills AI, and any custom integration using the platform API. You configure mentors, push agent identities, assign skills, and chat with users -- all managed centrally through ibl.ai while the compute runs on your own infrastructure.
+
+## Features
+
+- **Self-hosted AI agents** -- Run OpenClaw or NemoClaw on your own infrastructure while managing everything through ibl.ai
+- **Automatic TLS** -- Caddy reverse proxy handles Let's Encrypt certificates with zero configuration
+- **Centralized mentor management** -- Configure agent identities, personalities, and behavioral guidelines via the ibl.ai API
+- **Skill system** -- Create reusable skills with scripts and resources, assign them to mentors, push to instances
+- **Multi-model support** -- Use Anthropic, OpenRouter, or any OpenAI-compatible provider with automatic fallbacks
+- **Multi-agent deployments** -- Run multiple agents on a single gateway (tutor, course creator, admissions, etc.)
+- **Secure by default** -- Ed25519 device identity signing, loopback-only gateway binding, token-based auth
+- **Platform integration** -- Connected instances are accessible from Mentor AI, Skills AI, and any custom integration via REST API
+- **Monitoring** -- Health checks, connectivity tests, security audits, and version tracking through the API
 
 ## Architecture
 
