@@ -60,6 +60,35 @@ echo "export OPENCLAW_GATEWAY_TOKEN=$OPENCLAW_GATEWAY_TOKEN" >> ~/.bashrc
 
 ### 1.4 -- Configure OpenClaw
 
+The recommended approach is to use the onboarding wizard, which walks you through configuration, API key setup, workspace creation, and service installation interactively:
+
+```bash
+openclaw onboard
+```
+
+During onboarding, use these settings:
+- **LLM provider**: Select your provider (e.g. Anthropic) and enter your API key when prompted
+- **Gateway port**: `18789`
+- **Gateway binding**: `loopback` (the reverse proxy handles external access)
+- **Authentication**: `token`, using the token from step 1.3
+- **Service installation**: Select **yes** to install the gateway as a systemd service
+
+After onboarding, add your domain to the Control UI allowlist:
+
+```bash
+openclaw config set gateway.controlUi.allowedOrigins '["https://YOUR-DOMAIN-HERE"]'
+```
+
+Replace `YOUR-DOMAIN-HERE` with your actual domain (e.g. `claw.yourcompany.com`). Then skip ahead to [Part 2: Set Up TLS with Caddy](#part-2-set-up-tls-with-caddy).
+
+See the [onboard CLI docs](https://docs.openclaw.ai/cli/onboard) for the full list of options.
+
+#### Alternative: Manual configuration
+
+If you prefer to set things up manually, write the config file and set credentials directly.
+
+**1.4a -- Write the config:**
+
 ```bash
 mkdir -p ~/.openclaw
 
@@ -120,13 +149,14 @@ Replace `YOUR-DOMAIN-HERE` with your actual domain (e.g. `claw.yourcompany.com`)
 
 This is especially recommended for multi-agent setups where the probability of hitting an API error scales with the number of agents.
 
-### 1.5 -- Set your Anthropic API key
+**1.4b -- Set your Anthropic API key:**
 
 ```bash
-openclaw auth add --provider anthropic --key YOUR_ANTHROPIC_API_KEY
+export ANTHROPIC_API_KEY=<your-key>
+echo "export ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> ~/.bashrc
 ```
 
-### 1.6 -- Set up the workspace
+**1.4c -- Set up the workspace:**
 
 ```bash
 mkdir -p /root/.openclaw/workspace
@@ -157,13 +187,11 @@ apt install caddy
 ```bash
 cat > /etc/caddy/Caddyfile << 'EOF'
 your-domain.example.com {
-    reverse_proxy localhost:18789
-
-    # Health check endpoint for platform connectivity tests
     handle /api/status {
         rewrite * /
         reverse_proxy localhost:18789
     }
+    reverse_proxy localhost:18789
 }
 EOF
 ```
@@ -196,12 +224,11 @@ curl -s -o /dev/null -w "%{http_code}" https://your-domain.example.com/api/statu
 
 ## Part 3: Run OpenClaw as a Service
 
-### 3.1 -- Create a systemd service
+If you used `openclaw onboard` and selected **yes** for service installation in step 1.4, the systemd service is already created. Skip to [3.2 -- Enable lingering](#32----enable-lingering).
+
+### 3.1 -- Create a systemd service (manual path only)
 
 ```bash
-# Enable lingering so user services survive SSH logout
-loginctl enable-linger root
-
 mkdir -p ~/.config/systemd/user
 
 cat > ~/.config/systemd/user/openclaw-gateway.service << EOF
@@ -219,22 +246,24 @@ Environment=OPENCLAW_GATEWAY_TOKEN=$OPENCLAW_GATEWAY_TOKEN
 [Install]
 WantedBy=default.target
 EOF
-```
 
-> **Why `loginctl enable-linger root`?** OpenClaw runs as a user-level systemd service. Without lingering, systemd kills the service when the last SSH session closes. The gateway appears healthy while you're connected but silently dies after you disconnect. Verify with: `loginctl show-user root 2>/dev/null | grep Linger` -- should show `Linger=yes`.
-
-### 3.2 -- Start the service
-
-```bash
 systemctl --user daemon-reload
 systemctl --user enable openclaw-gateway
 systemctl --user start openclaw-gateway
-systemctl --user status openclaw-gateway
 ```
+
+### 3.2 -- Enable lingering
+
+```bash
+loginctl enable-linger root
+```
+
+> **Why is this required?** OpenClaw runs as a user-level systemd service. Without lingering, systemd kills the service when the last SSH session closes. The gateway appears healthy while you're connected but silently dies after you disconnect. Verify with: `loginctl show-user root 2>/dev/null | grep Linger` -- should show `Linger=yes`.
 
 ### 3.3 -- Verify the gateway is running
 
 ```bash
+systemctl --user status openclaw-gateway
 openclaw health --json
 # Should show: {"ok": true, ...}
 ```
