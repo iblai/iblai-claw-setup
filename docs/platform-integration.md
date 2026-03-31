@@ -43,7 +43,7 @@ Content-Type: application/json
 | Field | Type | Description |
 |---|---|---|
 | `name` | string | Display name for this instance |
-| `claw_type` | string | `"openclaw"` or `"ironclaw"` |
+| `claw_type` | string | Instance type (e.g. `"openclaw"`) |
 | `server_url` | string | HTTPS URL of your claw server |
 | `gateway_token` | string | Write-only. The token from [server setup step 1.3](server-setup.md#13----generate-a-gateway-token) |
 | `auth_headers` | object | Write-only. Optional proxy auth headers (`{"string": "string"}` pairs) |
