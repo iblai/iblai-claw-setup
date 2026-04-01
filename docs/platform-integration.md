@@ -47,7 +47,19 @@ Content-Type: application/json
 | `server_url` | string | HTTPS URL of your claw server |
 | `gateway_token` | string | Write-only. The token from [server setup step 1.3](server-setup.md#13----generate-a-gateway-token) |
 | `auth_headers` | object | Write-only. Optional proxy auth headers (`{"string": "string"}` pairs) |
-| `connection_params` | object | Write-only. Variant-specific auth (e.g. device identity key for OpenClaw) |
+| `connection_params` | object | Write-only. Variant-specific auth (e.g. device identity key for OpenClaw -- see below) |
+
+**Device identity (required for OpenClaw):** The platform needs an Ed25519 keypair for device identity signing. Without it, config push will fail with "missing scope: operator.read". Generate a keypair and include it in `connection_params`:
+
+```json
+{
+  "device_identity": {
+    "private_key_pem": "-----BEGIN PRIVATE KEY-----\n<base64>\n-----END PRIVATE KEY-----\n"
+  }
+}
+```
+
+See [server setup step 5.2](server-setup.md#52----generate-and-store-device-keypair) for how to generate the keypair.
 
 Save the `id` from the response -- you'll need it for subsequent steps.
 
@@ -133,7 +145,7 @@ Content-Type: application/json
   "credential_name": "openrouter",
   "credential_key": "key",
   "model_catalog": [
-    {"id": "anthropic/claude-sonnet-4-5-20250929", "name": "Claude Sonnet"},
+    {"id": "anthropic/claude-sonnet-4-6", "name": "Claude Sonnet"},
     {"id": "meta-llama/llama-3.2-3b-instruct:free", "name": "Llama 3.2 (free)"}
   ],
   "enabled": true,
@@ -217,7 +229,7 @@ Content-Type: application/json
 {
   "identity": "Name: Study Buddy\nVibe: Friendly and patient",
   "soul": "Always encourage the student. Be concise.",
-  "model": "anthropic/claude-sonnet-4-5-20250929"
+  "model": "anthropic/claude-sonnet-4-6"
 }
 ```
 
@@ -398,7 +410,7 @@ curl -X PATCH https://platform.ibl.ai/api/ai-mentor/orgs/my-org/agent-configs/1/
   -d '{
     "identity": "Name: Study Buddy\nVibe: Friendly and patient tutor",
     "soul": "Always encourage the student. Never give answers directly. Be concise.",
-    "model": "anthropic/claude-sonnet-4-5-20250929",
+    "model": "anthropic/claude-sonnet-4-6",
     "config": {
       "heartbeat": {"every": "30m"},
       "session": {"dmScope": "per-channel-peer"}
