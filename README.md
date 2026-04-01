@@ -12,6 +12,8 @@ Connect self-hosted claw servers (OpenClaw, NVIDIA NemoClaw) to the [ibl.ai](htt
 
 </div>
 
+> **Note:** This guide runs against the hosted [iblai.app](https://iblai.app) environment. If you'd like a license to run the full ibl.ai platform locally or on your own infrastructure, reach out to our team at [ibl.ai/contact](https://ibl.ai/contact).
+
 ---
 
 ## Overview
