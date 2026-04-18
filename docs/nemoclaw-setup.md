@@ -26,19 +26,25 @@ If you already know OpenClaw, read this guide in conjunction with [OpenClaw Serv
 ```
 Student (browser) → ibl.ai Platform (Django Channels / ASGI)
                          │
+                         ▼
                     ClawLLMRunner
                          │
+                         ▼
                     OpenClawClient (WSS + Ed25519 device identity signing)
                          │
+                         ▼
                     Caddy (on host, TLS via Let's Encrypt)
                          │ reverse proxy to 127.0.0.1:18789
                          ▼
                     openshell forward (host ↔ sandbox)
                          │
+                         ▼
                     OpenClaw Gateway (inside OpenShell sandbox)
                          │
+                         ▼
                     NVIDIA NemoClaw plugin
                          │
+                         ▼
                     LLM Provider (NVIDIA NIM, Anthropic, OpenAI, etc.)
 ```
 
@@ -126,20 +132,16 @@ On completion it prints the sandbox name, primary model, and gateway port (defau
 
 ### 1.4 -- Generate a gateway token
 
-The token that the ibl.ai platform will use to authenticate comes from the sandbox's OpenClaw config. Read it out:
+The token that the ibl.ai platform will use to authenticate comes from the sandbox's OpenClaw config. Drop into the sandbox and read it:
 
 ```bash
-openshell exec <sandbox-name> -- openclaw config get gateway.auth.token
+nemoclaw <sandbox-name> connect
+# Inside the sandbox:
+openclaw config get gateway.auth.token
+exit
 ```
 
-If the wizard didn't generate one (some installers skip this), set one explicitly:
-
-```bash
-export OPENCLAW_GATEWAY_TOKEN=$(openssl rand -hex 32)
-openshell exec <sandbox-name> -- openclaw config set gateway.auth.token "$OPENCLAW_GATEWAY_TOKEN"
-openshell exec <sandbox-name> -- openclaw config set gateway.auth.mode token
-echo "export OPENCLAW_GATEWAY_TOKEN=$OPENCLAW_GATEWAY_TOKEN" >> ~/.bashrc
-```
+If the wizard didn't generate one, re-run onboarding -- `nemoclaw <sandbox-name> rebuild --yes` picks fresh auth settings.
 
 **Save this token** -- you need it when connecting to the ibl.ai platform and when opening the Control UI in a browser.
 
@@ -250,84 +252,58 @@ Port `18789` should **not** be exposed on the cloud firewall -- all external tra
 
 ## Part 4: Hostname Access Configuration
 
-By default the NemoClaw gateway only accepts browser origins of `http://127.0.0.1:18789`. To serve the Control UI as `https://domain.example.com` you need to add that origin to the allowlist. There are three approaches -- pick based on your situation.
+By default the NemoClaw gateway only accepts browser origins of `http://127.0.0.1:18789`. Opening the Control UI at `https://domain.example.com` produces:
 
-### Option A: set `CHAT_UI_URL` before onboarding (preferred, clean setup)
+> `origin not allowed (open the Control UI from the gateway host or allow it in gateway.controlUi.allowedOrigins)`
 
-If you have not yet run `nemoclaw onboard`, set the environment variable first (see [Prerequisites](#critical-set-chat_ui_url-before-onboarding)):
+The fix is to set `CHAT_UI_URL` **before** running `nemoclaw onboard` -- the installer bakes that origin into the sandbox's `gateway.controlUi.allowedOrigins` at image-build time. Setting `CHAT_UI_URL` after onboarding has no effect on the live sandbox.
+
+### Setting `CHAT_UI_URL` before onboarding
+
+Export the variable, then run the installer or onboard command. On a fresh install this should already be done -- see [Step 1.1](#11----ssh-in-and-set-chat_ui_url).
 
 ```bash
 export CHAT_UI_URL="https://domain.example.com"
+echo "export CHAT_UI_URL=$CHAT_UI_URL" >> ~/.bashrc   # survive new SSH sessions
+
+# Fresh install:
+curl -fsSL https://www.nvidia.com/nemoclaw.sh | bash
+
+# Or, if nemoclaw is already installed but no sandbox has been onboarded yet:
 nemoclaw onboard
 ```
 
-The sandbox image is built with `https://domain.example.com` in the allowlist and no further action is needed.
-
-### Option B: patch `gateway.controlUi.allowedOrigins` on an existing sandbox
-
-If you've already onboarded with the default allowlist, add the hostname without recreating the sandbox:
+Verify after onboarding:
 
 ```bash
-openshell exec <sandbox-name> -- openclaw config set \
-  gateway.controlUi.allowedOrigins \
-  '["https://domain.example.com","http://127.0.0.1:18789"]'
-
-# Restart the gateway inside the sandbox so the new config takes effect
-openshell exec <sandbox-name> -- systemctl --user restart openclaw-gateway
-
-# Verify
-openshell exec <sandbox-name> -- openclaw config get gateway.controlUi.allowedOrigins
+nemoclaw <sandbox-name> connect
+openclaw config get gateway.controlUi.allowedOrigins
+# Should include https://domain.example.com
+exit
 ```
 
-Keep `http://127.0.0.1:18789` in the list so that on-host diagnostic commands (`curl http://127.0.0.1:18789/`) still work.
+### If you've already onboarded without `CHAT_UI_URL`
 
-### Option C: direct LAN access without Caddy (not recommended for production)
+Rebuild the sandbox with the variable set. `nemoclaw <sandbox-name> rebuild` preserves state but re-runs the parts of onboarding that bake into the image:
 
-If you want to reach the gateway at `http://domain.example.com:18789` directly -- without Caddy / without TLS -- two things need to change:
+```bash
+export CHAT_UI_URL="https://domain.example.com"
+echo "export CHAT_UI_URL=$CHAT_UI_URL" >> ~/.bashrc
+nemoclaw <sandbox-name> rebuild --yes
+```
 
-1. **Rebind the openshell forward to `0.0.0.0`** so it accepts connections from any interface, not just loopback:
+After the rebuild completes, verify the allowlist as above.
 
-   ```bash
-   openshell forward stop 18789 <sandbox-name>
-   openshell forward start --background 0.0.0.0:18789 <sandbox-name>
-   ```
+### Entering the sandbox for diagnostics
 
-2. **Set the gateway bind mode to `lan`** (inside the sandbox). NemoClaw / OpenClaw accept named modes only -- `loopback`, `lan`, `tailnet`, `auto`, `custom` -- not raw IPs like `0.0.0.0`:
+To inspect OpenClaw config or run `openclaw` commands against the running sandbox, drop into the sandbox shell:
 
-   ```bash
-   openshell exec <sandbox-name> -- openclaw config set gateway.bind lan
-   openshell exec <sandbox-name> -- systemctl --user restart openclaw-gateway
-   ```
+```bash
+nemoclaw <sandbox-name> connect
+# You are now inside the sandbox. `openclaw`, `openclaw config get`, etc. are on PATH.
+```
 
-3. **Add the LAN origin to the allowlist:**
-
-   ```bash
-   openshell exec <sandbox-name> -- openclaw config set \
-     gateway.controlUi.allowedOrigins \
-     '["http://domain.example.com:18789","http://127.0.0.1:18789"]'
-   ```
-
-4. **Open port 18789 on the cloud firewall + UFW** (restricted to trusted source IPs):
-
-   ```bash
-   ufw allow from <trusted-ip> to any port 18789 proto tcp
-   ```
-
-Prefer Option A or B. Exposing the gateway on a plaintext port over the internet bypasses Caddy's TLS and is not the supported deployment.
-
-### Why named bind modes, not `0.0.0.0`
-
-OpenClaw validates the bind value against a fixed set of modes. Setting `OPENCLAW_GATEWAY_BIND=0.0.0.0` produces `Invalid --bind (use "loopback", "lan", "tailnet", "auto", or "custom")` and the gateway refuses to start. The modes are:
-
-| Mode       | Behavior                                                           |
-| ---------- | ------------------------------------------------------------------ |
-| `loopback` | Listen on `127.0.0.1` only -- use this when Caddy proxies in front |
-| `lan`      | Listen on private network interfaces -- for direct LAN access      |
-| `tailnet`  | Listen on the Tailscale interface only                             |
-| `auto`     | Pick based on detected network context                             |
-| `custom`   | Listen on an explicit interface set via `gateway.bindAddresses`    |
-
-For the Caddy-fronted deployment this guide describes, leave it on `loopback` (the default).
+There is **no** `openshell exec <sandbox> -- <cmd>` form in NemoClaw -- use `nemoclaw <sandbox-name> connect` and run commands interactively. `/sandbox/.openclaw/openclaw.json` is root-owned and read-only by design, so do not try to edit it directly; always flow config through `CHAT_UI_URL` and `nemoclaw onboard` / `rebuild`.
 
 ---
 
@@ -347,11 +323,13 @@ curl -s -o /dev/null -w "%{http_code}" https://domain.example.com/api/status
 
 ### 5.2 -- Control UI
 
-Open `https://domain.example.com/?token=<gateway-token>` in a browser. First access through Caddy will show "pairing required" (same as OpenClaw -- reverse-proxied connections are not auto-approved). Approve on the server:
+Open `https://domain.example.com/?token=<gateway-token>` in a browser. First access through Caddy will show "pairing required" (same as OpenClaw -- reverse-proxied connections are not auto-approved). Approve from inside the sandbox:
 
 ```bash
-openshell exec <sandbox-name> -- openclaw devices list
-openshell exec <sandbox-name> -- openclaw devices approve <requestId>
+nemoclaw <sandbox-name> connect
+# Inside the sandbox:
+openclaw devices list
+openclaw devices approve <requestId>
 ```
 
 ### 5.3 -- Chat test
@@ -371,7 +349,7 @@ The platform-side integration is identical for NemoClaw and OpenClaw -- the gate
 - [OpenClaw Part 5.3 -- Push config](server-setup.md#53----push-config)
 - [OpenClaw Part 5.4 -- Test chat through the platform](server-setup.md#54----test-chat-through-the-platform)
 
-One gotcha: when the ibl.ai backend pushes config via the gateway, the changes are applied to the OpenClaw instance **inside the sandbox**. To inspect the effective config, use `openshell exec <sandbox-name> -- openclaw config get` -- the `~/.openclaw/openclaw.json` on the host is not the live config.
+One gotcha: when the ibl.ai backend pushes config via the gateway, the changes are applied to the OpenClaw instance **inside the sandbox**. To inspect the effective config, drop in with `nemoclaw <sandbox-name> connect` and run `openclaw config get` -- the `~/.openclaw/openclaw.json` on the host is not the live config.
 
 ---
 
@@ -397,11 +375,9 @@ openshell forward list
 curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18789/
 # Expected: 200
 
-# Gateway status inside sandbox
-openshell exec <sandbox-name> -- openclaw health --json
-
-# Connected devices
-openshell exec <sandbox-name> -- openclaw devices list
+# Gateway status / connected devices (run inside the sandbox)
+nemoclaw <sandbox-name> connect
+# then inside: `openclaw health --json` and `openclaw devices list`
 
 # Caddy + TLS working?
 curl -s -o /dev/null -w "%{http_code}" https://domain.example.com/api/status
@@ -437,16 +413,15 @@ Avoid `npm update -g openclaw` directly -- NemoClaw manages the OpenClaw version
 
 ## Snags Reference
 
-| #   | Issue                                                                    | Root cause                                                                                        | Fix                                                                                                                                                                |
-| --- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | Browser origin blocked when opening `https://domain.example.com/`        | `CHAT_UI_URL` not set before `nemoclaw onboard`; allowlist contains only `http://127.0.0.1:18789` | Option A (re-onboard with `CHAT_UI_URL`) or Option B (`openclaw config set gateway.controlUi.allowedOrigins`). See [Part 4](#part-4-hostname-access-configuration) |
-| 2   | `curl http://127.0.0.1:18789/` returns connection refused                | openshell forward not running (common after sandbox recreate)                                     | `openshell forward start --background 127.0.0.1:18789 <sandbox-name>`                                                                                              |
-| 3   | Forward is lost after reboot                                             | systemd unit not installed for the forward                                                        | Install `nemoclaw-forward.service`. See [Step 1.6](#16----persistence-across-reboots)                                                                              |
-| 4   | `Invalid --bind (use "loopback", "lan", "tailnet", "auto", or "custom")` | Set `gateway.bind` to a raw IP (`0.0.0.0`)                                                        | Use a named mode -- `loopback` for Caddy-fronted, `lan` for direct LAN                                                                                             |
-| 5   | `~/.openclaw/openclaw.json` edits have no effect                         | That file is on the host; the live config lives inside the sandbox                                | Use `openshell exec <sandbox-name> -- openclaw config set/get`                                                                                                     |
-| 6   | `missing scope: operator.read` on platform config push                   | Same as OpenClaw -- device identity signing not wired up                                          | Provision the Ed25519 keypair. See [OpenClaw Part 5.2](server-setup.md#52----generate-and-store-device-keypair)                                                    |
-| 7   | `NOT_PAIRED` after `nemoclaw update`                                     | Sandbox recreated, paired devices wiped                                                           | Re-pair. See [OpenClaw -- Device Re-Pairing](server-setup.md#device-re-pairing-after-gateway-restarts--updates)                                                    |
-| 8   | Let's Encrypt ACME fails on Caddy startup                                | DNS / firewall not ready                                                                          | See [OpenClaw Part 3](server-setup.md#part-3-firewall)                                                                                                             |
+| #   | Issue                                                                                                            | Root cause                                                                                                                                      | Fix                                                                                                                                                                |
+| --- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `origin not allowed (open the Control UI from the gateway host or allow it in gateway.controlUi.allowedOrigins)` | `CHAT_UI_URL` was not exported before `nemoclaw onboard`, so the sandbox was baked with the default allowlist `["http://127.0.0.1:18789"]` only | Export `CHAT_UI_URL` and rebuild: `nemoclaw <sandbox> rebuild --yes`. See [Part 4](#part-4-hostname-access-configuration)                                          |
+| 2   | `curl http://127.0.0.1:18789/` returns connection refused                                                        | openshell forward not running (common after sandbox recreate)                                                                                   | `openshell forward start --background 127.0.0.1:18789 <sandbox-name>`                                                                                              |
+| 3   | Forward is lost after reboot                                                                                     | systemd unit not installed for the forward                                                                                                      | Install `nemoclaw-forward.service`. See [Step 1.6](#16----persistence-across-reboots)                                                                              |
+| 4   | Host-side `~/.openclaw/openclaw.json` edits have no effect                                                       | That file is on the host; the live config lives inside the sandbox. The sandbox config is also read-only                                        | Use `nemoclaw <sandbox> connect` and `openclaw config get` to inspect. Change origins by re-exporting `CHAT_UI_URL` and running `nemoclaw <sandbox> rebuild --yes` |
+| 5   | `missing scope: operator.read` on platform config push                                                           | Same as OpenClaw -- device identity signing not wired up                                                                                        | Provision the Ed25519 keypair. See [OpenClaw Part 5.2](server-setup.md#52----generate-and-store-device-keypair)                                                    |
+| 6   | `NOT_PAIRED` after `nemoclaw update`                                                                             | Sandbox recreated, paired devices wiped                                                                                                         | Re-pair. See [OpenClaw -- Device Re-Pairing](server-setup.md#device-re-pairing-after-gateway-restarts--updates)                                                    |
+| 7   | Let's Encrypt ACME fails on Caddy startup                                                                        | DNS / firewall not ready                                                                                                                        | See [OpenClaw Part 3](server-setup.md#part-3-firewall)                                                                                                             |
 
 ---
 
