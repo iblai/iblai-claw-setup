@@ -13,19 +13,20 @@
 # the ibl.ai platform (claw instance + mentor + wiring, incl. the device key) via
 # scripts/seed_claw_mentor.py; otherwise it prints the API call for you to run.
 #
-# Usage (OpenClaw, the default):
+# Usage (interactive -- prompts for domain, API key, etc.):
+#   curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh | bash
+#
+# Usage (non-interactive -- pre-set any variable to skip its prompt):
 #   curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh \
 #     | DOMAIN=claw.example.com ANTHROPIC_API_KEY=sk-ant-... bash
+#   # NemoClaw: add CLAW_TYPE=nemoclaw
 #
-# Usage (NemoClaw):
-#   curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh \
-#     | CLAW_TYPE=nemoclaw DOMAIN=claw.example.com ANTHROPIC_API_KEY=sk-ant-... bash
-#
-# Config (environment variables):
+# Config (each is prompted if unset and a terminal is attached; otherwise the
+# default shown is used, or the value is required):
 #   DOMAIN            (required) hostname whose DNS A record points at this server
 #   ANTHROPIC_API_KEY (required for openclaw; nemoclaw collects it in its wizard)
 #   CLAW_TYPE         openclaw (default) | nemoclaw
-#   MODEL             default: anthropic/claude-sonnet-4-6
+#   MODEL             default: anthropic/claude-sonnet-5
 #   SANDBOX_NAME      nemoclaw only, default: main
 #   INSTALL_PLUGIN    yes (default) | no
 #   SETUP_FIREWALL    yes (default) | no
@@ -41,28 +42,30 @@
 # Re-running is safe: it never regenerates an existing gateway token or device
 # key (doing so would break platform pairing) and skips already-installed steps.
 #
-# Interactive bits (the NemoClaw onboarding wizard) read from /dev/tty, so the
-# curl | bash form still works. See docs/server-setup.md and docs/nemoclaw-setup.md.
+# All prompts (and the NemoClaw onboarding wizard) read from /dev/tty, so the
+# curl | bash form is fully interactive. See docs/server-setup.md and docs/nemoclaw-setup.md.
 set -euo pipefail
 
-# ---- configuration (environment-driven) --------------------------------------
-CLAW_TYPE="${CLAW_TYPE:-openclaw}"
+# ---- configuration -----------------------------------------------------------
+# Each value comes from the environment (pre-set to skip its prompt), an
+# interactive prompt, or a default -- collect_config() below resolves them.
+CLAW_TYPE="${CLAW_TYPE:-}"
 DOMAIN="${DOMAIN:-}"
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
-MODEL="${MODEL:-anthropic/claude-sonnet-5}"
-SANDBOX_NAME="${SANDBOX_NAME:-main}"
-INSTALL_PLUGIN="${INSTALL_PLUGIN:-yes}"
-SETUP_FIREWALL="${SETUP_FIREWALL:-yes}"
+MODEL="${MODEL:-}"
+SANDBOX_NAME="${SANDBOX_NAME:-}"
+INSTALL_PLUGIN="${INSTALL_PLUGIN:-}"
+SETUP_FIREWALL="${SETUP_FIREWALL:-}"
 
-# Platform seeding (optional -- only runs when IBLAI_API_KEY is non-empty).
+# Platform seeding (optional -- runs when IBLAI_API_KEY ends up set).
 IBLAI_API_KEY="${IBLAI_API_KEY:-}"
-IBLAI_HOST="${IBLAI_HOST:-https://base.manager.iblai.app}"
-IBLAI_ORG="${IBLAI_ORG:-main}"
-IBLAI_USER_ID="${IBLAI_USER_ID:-admin}"
-IBLAI_CLAW_TYPE="${IBLAI_CLAW_TYPE:-openclaw}"
-AGENT_NAME="${AGENT_NAME:-Claw Agent}"
+IBLAI_HOST="${IBLAI_HOST:-}"
+IBLAI_ORG="${IBLAI_ORG:-}"
+IBLAI_USER_ID="${IBLAI_USER_ID:-}"
+IBLAI_CLAW_TYPE="${IBLAI_CLAW_TYPE:-}"
+AGENT_NAME="${AGENT_NAME:-}"
 AGENT_DESCRIPTION="${AGENT_DESCRIPTION:-}"
-AGENT_ID="${AGENT_ID:-main}"
+AGENT_ID="${AGENT_ID:-}"
 AGENT_CONFIG="${AGENT_CONFIG:-}"
 SEED_URL="${SEED_URL:-https://raw.githubusercontent.com/iblai/claw-setup/main/scripts/seed_claw_mentor.py}"
 
@@ -78,9 +81,37 @@ die()  { printf '\033[1;31m[x]\033[0m %s\n'  "$*" >&2; exit 1; }
 
 usage() { awk 'NR==1{next} /^#/{sub(/^#[[:space:]]?/,""); print; next} {exit}' "$0" 2>/dev/null || true; }
 
+# True when the controlling terminal is readable (works even under curl|bash).
+have_tty() { (exec </dev/tty) 2>/dev/null; }
+
 # Run an interactive command attached to the real terminal even under curl|bash.
 tty_run() {
-  if [ -e /dev/tty ]; then "$@" </dev/tty >/dev/tty 2>&1; else "$@"; fi
+  if have_tty; then "$@" </dev/tty >/dev/tty 2>&1; else "$@"; fi
+}
+
+# prompt VAR "message" [default] [secret] -- keep an env-provided value, else ask
+# on the terminal (blank input takes the default). A terminal is required (main
+# checks have_tty up front and errors out otherwise).
+prompt() {
+  local var="$1" msg="$2" def="${3-}" secret="${4-}" ans
+  [ -n "${!var-}" ] && return 0
+  if [ -n "$secret" ]; then
+    printf '%s: ' "$msg" >/dev/tty
+    read -rs ans </dev/tty; printf '\n' >/dev/tty
+  elif [ -n "$def" ]; then
+    printf '%s [%s]: ' "$msg" "$def" >/dev/tty; read -r ans </dev/tty
+  else
+    printf '%s: ' "$msg" >/dev/tty; read -r ans </dev/tty
+  fi
+  printf -v "$var" '%s' "${ans:-$def}"
+}
+
+# confirm "message" [yes|no] -- returns 0 for yes (blank input takes the default).
+confirm() {
+  local msg="$1" def="${2:-no}" ans hint="[y/N]"
+  [ "$def" = yes ] && hint="[Y/n]"
+  printf '%s %s ' "$msg" "$hint" >/dev/tty; read -r ans </dev/tty
+  case "${ans:-$def}" in [yY]*) return 0 ;; *) return 1 ;; esac
 }
 
 # Append an export to ~/.bashrc once (survives new SSH sessions).
@@ -95,12 +126,59 @@ json_escape_file() {
   awk 'BEGIN{ORS=""} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); print $0 "\\n"}' "$1"
 }
 
-# ---- validation --------------------------------------------------------------
+# Gather every user-facing setting: env value > interactive prompt > default.
+collect_config() {
+  log "Setup -- Enter accepts each [default]; pre-set env vars to skip prompts."
+
+  prompt CLAW_TYPE "Claw type: openclaw or nemoclaw" openclaw
+  case "$CLAW_TYPE" in openclaw|nemoclaw) ;; *) die "CLAW_TYPE must be 'openclaw' or 'nemoclaw'";; esac
+
+  prompt DOMAIN "Domain served over HTTPS (its DNS A record must already point here)"
+
+  if [ "$CLAW_TYPE" = nemoclaw ]; then
+    prompt SANDBOX_NAME "NemoClaw sandbox name" main
+    prompt ANTHROPIC_API_KEY "Anthropic API key (blank = enter it in the NemoClaw wizard)" "" secret
+  else
+    prompt ANTHROPIC_API_KEY "Anthropic API key" "" secret
+    prompt MODEL "Primary model" anthropic/claude-sonnet-5
+  fi
+
+  prompt INSTALL_PLUGIN "Install the iblai-openclaw-extensions plugin? yes/no" yes
+  prompt SETUP_FIREWALL "Configure the UFW firewall (22/80/443)? yes/no" yes
+
+  # Optional: register + seed the ibl.ai platform in the same run.
+  if [ -z "$IBLAI_API_KEY" ] && confirm "Register this instance on the ibl.ai platform now?" no; then
+    IBLAI_SEED=yes
+  fi
+  if [ -n "$IBLAI_API_KEY" ] || [ "${IBLAI_SEED:-no}" = yes ]; then
+    prompt IBLAI_API_KEY "ibl.ai platform API key" "" secret
+    prompt IBLAI_HOST "ibl.ai platform host" https://base.manager.iblai.app
+    prompt IBLAI_ORG "ibl.ai org / tenant slug" main
+    prompt AGENT_NAME "Agent display name (the mentor shown on the platform)" "Claw Agent"
+  fi
+
+  # Defaults for anything not prompted or left blank.
+  MODEL="${MODEL:-anthropic/claude-sonnet-5}"
+  SANDBOX_NAME="${SANDBOX_NAME:-main}"
+  INSTALL_PLUGIN="${INSTALL_PLUGIN:-yes}"
+  SETUP_FIREWALL="${SETUP_FIREWALL:-yes}"
+  IBLAI_HOST="${IBLAI_HOST:-https://base.manager.iblai.app}"
+  IBLAI_ORG="${IBLAI_ORG:-main}"
+  IBLAI_USER_ID="${IBLAI_USER_ID:-admin}"
+  IBLAI_CLAW_TYPE="${IBLAI_CLAW_TYPE:-openclaw}"
+  AGENT_NAME="${AGENT_NAME:-Claw Agent}"
+  AGENT_ID="${AGENT_ID:-main}"
+}
+
+# ---- checks, then gather config ----------------------------------------------
 case "${1:-}" in -h|--help) usage; exit 0 ;; esac
-[ -n "$DOMAIN" ] || { usage; die "DOMAIN is required (e.g. DOMAIN=claw.example.com)"; }
-case "$CLAW_TYPE" in openclaw|nemoclaw) ;; *) die "CLAW_TYPE must be 'openclaw' or 'nemoclaw'";; esac
+have_tty || die "no terminal available -- this installer is interactive; run it from a shell (e.g. over SSH)"
 [ "$(id -u)" -eq 0 ] || die "run as root (the setup guides assume root@server)"
 command -v apt-get >/dev/null 2>&1 || die "this installer targets Debian/Ubuntu (apt not found)"
+
+collect_config
+
+[ -n "$DOMAIN" ] || { usage; die "DOMAIN is required"; }
 if [ "$CLAW_TYPE" = openclaw ] && [ -z "$ANTHROPIC_API_KEY" ]; then
   die "ANTHROPIC_API_KEY is required for openclaw"
 fi
