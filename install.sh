@@ -126,9 +126,20 @@ json_escape_file() {
   awk 'BEGIN{ORS=""} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); print $0 "\\n"}' "$1"
 }
 
+# Pixel-art splash: "ibl.ai Claw Setup".
+banner() {
+  printf '\n\033[1;32m'
+  cat <<'ART'
++-----------------------+
+|   ibl.ai Claw Setup   |
++-----------------------+
+ART
+  printf '\033[0m\n'
+}
+
 # Gather every user-facing setting: env value > interactive prompt > default.
 collect_config() {
-  log "Setup -- Enter accepts each [default]; pre-set env vars to skip prompts."
+  log "Setup"
 
   prompt CLAW_TYPE "Claw type: openclaw or nemoclaw" openclaw
   case "$CLAW_TYPE" in openclaw|nemoclaw) ;; *) die "CLAW_TYPE must be 'openclaw' or 'nemoclaw'";; esac
