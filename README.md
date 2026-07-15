@@ -72,6 +72,27 @@ LLM Provider (Anthropic, OpenRouter, etc.)
 
 ## Quick Start
 
+### Automated setup (one command)
+
+On a fresh Debian/Ubuntu server, [`install.sh`](install.sh) does the whole server side -- installs OpenClaw (or NemoClaw), Caddy with automatic TLS, the firewall, and the `iblai-openclaw-extensions` plugin, then prints the gateway token, an Ed25519 device key, and the exact API call to register the instance with ibl.ai. Pass `IBLAI_API_KEY` and it does the platform side too -- creating the claw instance and a mentor (wiring in the device key) via [`scripts/seed_claw_mentor.py`](scripts/seed_claw_mentor.py):
+
+```bash
+# OpenClaw (default)
+curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh \
+  | DOMAIN=claw.example.com ANTHROPIC_API_KEY=sk-ant-... bash
+
+# NemoClaw
+curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh \
+  | CLAW_TYPE=nemoclaw DOMAIN=claw.example.com ANTHROPIC_API_KEY=sk-ant-... bash
+
+# ...and seed the ibl.ai platform in the same run (instance + mentor)
+curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh \
+  | DOMAIN=claw.example.com ANTHROPIC_API_KEY=sk-ant-... \
+    IBLAI_API_KEY=your-platform-key IBLAI_ORG=your-org bash
+```
+
+Point `DOMAIN`'s DNS A record at the server and open ports 80/443 first. Optional vars: `MODEL`, `SANDBOX_NAME` (NemoClaw), `INSTALL_PLUGIN=no`, `SETUP_FIREWALL=no`, and for seeding `IBLAI_HOST` / `IBLAI_ORG` / `AGENT_NAME`. Re-running is safe -- it never regenerates an existing token or key. Prefer the manual steps below to understand each piece.
+
 ### 1. Set up the server
 
 SSH into your VPS, install OpenClaw, configure Caddy for TLS, and start the gateway as a systemd service.
