@@ -139,7 +139,7 @@ ART
 
 # Gather every user-facing setting: env value > interactive prompt > default.
 collect_config() {
-  log "Setup"
+  banner
 
   prompt CLAW_TYPE "Claw type: openclaw or nemoclaw" openclaw
   case "$CLAW_TYPE" in openclaw|nemoclaw) ;; *) die "CLAW_TYPE must be 'openclaw' or 'nemoclaw'";; esac
