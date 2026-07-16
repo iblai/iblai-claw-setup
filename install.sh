@@ -18,17 +18,20 @@
 #
 # Usage (non-interactive -- pre-set any variable to skip its prompt):
 #   curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh \
-#     | DOMAIN=claw.example.com bash
+#     | DOMAIN=claw.example.com LLM_PROVIDER=anthropic LLM_API_KEY=sk-ant-... bash
 #   # NemoClaw: add CLAW_TYPE=nemoclaw
 #
-# The LLM provider, API key, and model are chosen in OpenClaw's own onboarding
-# (or the NemoClaw wizard) during setup, not here.
+# For OpenClaw the LLM provider + API key are collected here (its onboarding runs
+# non-interactively). NemoClaw collects them in its own wizard.
 #
 # Config (each is prompted if unset and a terminal is attached; otherwise the
 # default shown is used, or the value is required). Previous answers are cached
 # in ~/.cache/iblai-claw-setup and offered as the defaults next time:
 #   DOMAIN            (required) hostname whose DNS A record points at this server
 #   CLAW_TYPE         openclaw (default) | nemoclaw
+#   LLM_PROVIDER      openclaw only: anthropic (default) | openai | openrouter | google | groq | mistral | deepseek | xai
+#   LLM_API_KEY       openclaw only: API key for the chosen provider (required)
+#   MODEL             openclaw only: model id (default depends on provider)
 #   SANDBOX_NAME      nemoclaw only, default: main
 #   INSTALL_PLUGIN    yes (default) | no
 #   SETUP_FIREWALL    yes (default) | no
@@ -53,6 +56,10 @@ set -euo pipefail
 # interactive prompt, or a default -- collect_config() below resolves them.
 CLAW_TYPE="${CLAW_TYPE:-}"
 DOMAIN="${DOMAIN:-}"
+LLM_PROVIDER="${LLM_PROVIDER:-}"
+LLM_API_KEY="${LLM_API_KEY:-}"
+LLM_KEY_ENV="${LLM_KEY_ENV:-}"
+MODEL="${MODEL:-}"
 SANDBOX_NAME="${SANDBOX_NAME:-}"
 INSTALL_PLUGIN="${INSTALL_PLUGIN:-}"
 SETUP_FIREWALL="${SETUP_FIREWALL:-}"
@@ -77,7 +84,7 @@ PLUGIN_DIR="/opt/iblai-openclaw-extensions"
 
 # Cache previously entered (non-secret) answers and reuse them as prompt defaults.
 CACHE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/iblai-claw-setup"
-CACHE_KEYS=(CLAW_TYPE DOMAIN SANDBOX_NAME INSTALL_PLUGIN SETUP_FIREWALL IBLAI_HOST IBLAI_ORG IBLAI_USER_ID IBLAI_CLAW_TYPE AGENT_NAME AGENT_ID)
+CACHE_KEYS=(CLAW_TYPE DOMAIN LLM_PROVIDER MODEL SANDBOX_NAME INSTALL_PLUGIN SETUP_FIREWALL IBLAI_HOST IBLAI_ORG IBLAI_USER_ID IBLAI_CLAW_TYPE AGENT_NAME AGENT_ID)
 declare -A CACHED=()
 if [ -f "$CACHE_FILE" ]; then
   while IFS='=' read -r _k _v; do [ -n "$_k" ] && CACHED["$_k"]="$_v"; done < "$CACHE_FILE"
@@ -162,6 +169,24 @@ collect_config() {
 
   if [ "$CLAW_TYPE" = nemoclaw ]; then
     prompt SANDBOX_NAME "NemoClaw sandbox name" main
+  else
+    # OpenClaw onboarding runs non-interactively, so collect the LLM provider + key here.
+    prompt LLM_PROVIDER "LLM provider (anthropic, openai, openrouter, google, groq, mistral, deepseek, xai)" anthropic
+    local key_env model_default
+    case "$LLM_PROVIDER" in
+      anthropic)  key_env=ANTHROPIC_API_KEY;  model_default=anthropic/claude-sonnet-4-6 ;;
+      openai)     key_env=OPENAI_API_KEY;     model_default=openai/gpt-5 ;;
+      openrouter) key_env=OPENROUTER_API_KEY; model_default=openrouter/anthropic/claude-sonnet-4 ;;
+      google)     key_env=GEMINI_API_KEY;     model_default=google/gemini-2.5-pro ;;
+      groq)       key_env=GROQ_API_KEY;       model_default=groq/llama-3.3-70b-versatile ;;
+      mistral)    key_env=MISTRAL_API_KEY;    model_default=mistral/mistral-large-latest ;;
+      deepseek)   key_env=DEEPSEEK_API_KEY;   model_default=deepseek/deepseek-chat ;;
+      xai)        key_env=XAI_API_KEY;        model_default=xai/grok-4 ;;
+      *) die "unsupported LLM_PROVIDER '$LLM_PROVIDER' (anthropic|openai|openrouter|google|groq|mistral|deepseek|xai)" ;;
+    esac
+    LLM_KEY_ENV="$key_env"
+    prompt MODEL "Model id" "$model_default"
+    prompt LLM_API_KEY "${LLM_PROVIDER} API key"
   fi
 
   prompt INSTALL_PLUGIN "Install the iblai-openclaw-extensions plugin? yes/no" yes
@@ -174,7 +199,7 @@ collect_config() {
   fi
   if [ -n "$IBLAI_API_KEY" ] || [ "${IBLAI_SEED:-no}" = yes ]; then
     prompt IBLAI_API_KEY "ibl.ai platform API key"          # echoed on purpose (not hidden)
-    prompt IBLAI_ORG "ibl.ai org / tenant slug" main
+    prompt IBLAI_ORG "ibl.ai platform key" main
     prompt AGENT_NAME "Agent display name (the mentor shown on the platform)" "Claw Agent"
   fi
 
@@ -201,6 +226,19 @@ command -v apt-get >/dev/null 2>&1 || die "this installer targets Debian/Ubuntu 
 collect_config
 
 [ -n "$DOMAIN" ] || { usage; die "DOMAIN is required"; }
+if [ "$CLAW_TYPE" = openclaw ] && [ -z "$LLM_API_KEY" ]; then
+  die "an LLM API key is required for openclaw (set LLM_API_KEY or enter it at the prompt)"
+fi
+
+# ---- shared: system prep (runs first) ----------------------------------------
+system_prep() {
+  log "Disabling unattended-upgrades + apt timers (avoids apt lock contention)"
+  systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service >/dev/null 2>&1 || true
+  systemctl disable --now unattended-upgrades apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true
+  log "Installing base packages (Go)"
+  apt-get update
+  apt-get install -y golang-go
+}
 
 # ---- shared: Node.js 22 ------------------------------------------------------
 install_node() {
@@ -293,14 +331,21 @@ openclaw_install() {
     log "Reusing existing gateway token"
   fi
   persist_env OPENCLAW_GATEWAY_TOKEN "$OPENCLAW_GATEWAY_TOKEN"
+  persist_env "$LLM_KEY_ENV" "$LLM_API_KEY"
 
-  # Pre-write only the gateway/session config. The LLM provider, API key, and model
-  # are deliberately left out so OpenClaw's onboarding collects them.
+  # Onboarding is non-interactive, so write the full config (provider + model +
+  # gateway) up front. The provider API key is read from $LLM_KEY_ENV at runtime.
   if [ ! -f "${OPENCLAW_HOME}/openclaw.json" ]; then
-    log "Writing ${OPENCLAW_HOME}/openclaw.json (gateway config; provider + model set during onboarding)"
+    log "Writing ${OPENCLAW_HOME}/openclaw.json (provider=${LLM_PROVIDER}, model=${MODEL})"
     cat > "${OPENCLAW_HOME}/openclaw.json" <<CONF
 {
-  "agents": { "defaults": { "workspace": "${OPENCLAW_HOME}/workspace" } },
+  "auth": { "profiles": { "${LLM_PROVIDER}:default": { "provider": "${LLM_PROVIDER}", "mode": "api_key" } } },
+  "agents": {
+    "defaults": {
+      "model": { "primary": "${MODEL}" },
+      "workspace": "${OPENCLAW_HOME}/workspace"
+    }
+  },
   "commands": { "native": "auto", "nativeSkills": "auto", "restart": true, "ownerDisplay": "raw" },
   "session": { "dmScope": "per-channel-peer" },
   "gateway": {
@@ -318,26 +363,30 @@ CONF
   fi
 
   # Onboard + install the systemd user service (survives SSH logout via linger).
-  # --install-daemon runs onboarding (provider / API key / model) and installs the
-  # unit WITHOUT dropping into the chat TUI. Only run it when the unit is missing so
-  # re-runs stay quiet. Export the token so onboarding can resolve the reference.
+  # --non-interactive --accept-risk keeps onboarding from opening the chat TUI.
+  # Only run it when the unit is missing so re-runs stay quiet. Export the gateway
+  # token and provider key so non-interactive onboarding can use them.
   loginctl enable-linger root
   local unit="${HOME}/.config/systemd/user/openclaw-gateway.service"
   if [ ! -f "$unit" ]; then
-    log "Onboarding OpenClaw (choose provider, API key, model) + installing the gateway daemon"
-    OPENCLAW_GATEWAY_TOKEN="$OPENCLAW_GATEWAY_TOKEN" tty_run openclaw onboard --install-daemon
+    log "Onboarding OpenClaw + installing the gateway daemon (non-interactive)"
+    env "OPENCLAW_GATEWAY_TOKEN=$OPENCLAW_GATEWAY_TOKEN" "$LLM_KEY_ENV=$LLM_API_KEY" \
+      openclaw onboard --install-daemon --non-interactive --accept-risk
   else
     log "OpenClaw gateway daemon already installed -- skipping onboarding"
   fi
 
-  # A user service does not inherit our shell env, so supply the token via an
-  # EnvironmentFile (chmod 600, keeps the secret out of the config file).
+  # A user service does not inherit our shell env, so supply the gateway token and
+  # the provider API key via an EnvironmentFile (chmod 600, kept out of the config).
   mkdir -p "${unit}.d"
   cat > "${unit}.d/10-env-file.conf" <<DROPIN
 [Service]
 EnvironmentFile=-${env_file}
 DROPIN
-  printf 'OPENCLAW_GATEWAY_TOKEN=%s\n' "$OPENCLAW_GATEWAY_TOKEN" > "$env_file"
+  {
+    printf 'OPENCLAW_GATEWAY_TOKEN=%s\n' "$OPENCLAW_GATEWAY_TOKEN"
+    printf '%s=%s\n' "$LLM_KEY_ENV" "$LLM_API_KEY"
+  } > "$env_file"
   chmod 600 "$env_file"
 
   systemctl --user daemon-reload
@@ -562,6 +611,7 @@ NEXT
 }
 
 # ---- main --------------------------------------------------------------------
+system_prep
 log "Setting up ${CLAW_TYPE} for ${DOMAIN}"
 gen_device_key
 if [ "$CLAW_TYPE" = openclaw ]; then
