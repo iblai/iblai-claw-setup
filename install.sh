@@ -125,6 +125,7 @@ prompt() {
     printf '%s: ' "$msg" >/dev/tty; read -r ans </dev/tty
   fi
   printf -v "$var" '%s' "${ans:-$def}"
+  save_cache
 }
 
 # confirm "message" [yes|no] -- returns 0 for yes (blank input takes the default).
@@ -174,13 +175,13 @@ collect_config() {
     prompt LLM_PROVIDER "LLM provider (anthropic, openai, openrouter, google, groq, mistral, deepseek, xai)" anthropic
     local key_env model_default
     case "$LLM_PROVIDER" in
-      anthropic)  key_env=ANTHROPIC_API_KEY;  model_default=anthropic/claude-sonnet-4-6 ;;
-      openai)     key_env=OPENAI_API_KEY;     model_default=openai/gpt-5 ;;
-      openrouter) key_env=OPENROUTER_API_KEY; model_default=openrouter/anthropic/claude-sonnet-4 ;;
+      anthropic)  key_env=ANTHROPIC_API_KEY;  model_default=anthropic/claude-sonnet-5 ;;
+      openai)     key_env=OPENAI_API_KEY;     model_default=openai/gpt-5.5 ;;
+      openrouter) key_env=OPENROUTER_API_KEY; model_default=openrouter/anthropic/claude-sonnet-5 ;;
       google)     key_env=GEMINI_API_KEY;     model_default=google/gemini-2.5-pro ;;
       groq)       key_env=GROQ_API_KEY;       model_default=groq/llama-3.3-70b-versatile ;;
       mistral)    key_env=MISTRAL_API_KEY;    model_default=mistral/mistral-large-latest ;;
-      deepseek)   key_env=DEEPSEEK_API_KEY;   model_default=deepseek/deepseek-chat ;;
+      deepseek)   key_env=DEEPSEEK_API_KEY;   model_default=deepseek/deepseek-v4-pro ;;
       xai)        key_env=XAI_API_KEY;        model_default=xai/grok-4 ;;
       *) die "unsupported LLM_PROVIDER '$LLM_PROVIDER' (anthropic|openai|openrouter|google|groq|mistral|deepseek|xai)" ;;
     esac
@@ -317,8 +318,10 @@ openclaw_install() {
   fi
 
   # Gateway token: reuse the persisted one if present, else mint a fresh one.
-  # Stored by reference in openclaw.json ("${OPENCLAW_GATEWAY_TOKEN}"); the real
-  # value is handed to the systemd user service via a chmod-600 EnvironmentFile.
+  # Written literally into openclaw.json (chmod 600) so nothing needs the env var
+  # to resolve it -- avoids the "Missing env var OPENCLAW_GATEWAY_TOKEN" warning
+  # that a "${OPENCLAW_GATEWAY_TOKEN}" reference emits on every config load. The
+  # value is also kept in gateway.systemd.env so re-runs can reuse it.
   local env_file="${OPENCLAW_HOME}/gateway.systemd.env"
   mkdir -p "${OPENCLAW_HOME}/workspace"
   if [ -f "$env_file" ]; then
@@ -353,11 +356,12 @@ openclaw_install() {
     "mode": "local",
     "bind": "loopback",
     "controlUi": { "allowedOrigins": [ "https://${DOMAIN}" ] },
-    "auth": { "mode": "token", "token": "\${OPENCLAW_GATEWAY_TOKEN}" },
+    "auth": { "mode": "token", "token": "${OPENCLAW_GATEWAY_TOKEN}" },
     "tailscale": { "mode": "off", "resetOnExit": false }
   }
 }
 CONF
+    chmod 600 "${OPENCLAW_HOME}/openclaw.json"
   else
     log "openclaw.json already exists -- leaving it untouched"
   fi
