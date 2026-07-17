@@ -13,28 +13,19 @@
 # the ibl.ai platform (claw instance + mentor + wiring, incl. the device key) via
 # scripts/seed_claw_mentor.py; otherwise it prints the API call for you to run.
 #
-# Usage (interactive -- prompts for domain, etc.):
+# Usage -- HARNESS_TYPE is the only variable you ever set; everything else is asked
+# interactively (and cached in ~/.cache/iblai-claw-setup for next time):
 #   curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh | bash
+#     # OpenClaw (default)
+#   curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh | HARNESS_TYPE=nemoclaw bash
+#     # NemoClaw
 #
-# Usage (non-interactive -- pre-set any variable to skip its prompt):
-#   curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh \
-#     | DOMAIN=claw.example.com LLM_PROVIDER=anthropic LLM_API_KEY=sk-ant-... bash
-#   # NemoClaw: add CLAW_TYPE=nemoclaw
-#
-# For OpenClaw the LLM provider + API key are collected here (its onboarding runs
-# non-interactively). NemoClaw collects them in its own wizard.
-#
-# Config (each is prompted if unset and a terminal is attached; otherwise the
-# default shown is used, or the value is required). Previous answers are cached
-# in ~/.cache/iblai-claw-setup and offered as the defaults next time:
-#   DOMAIN            (required) hostname whose DNS A record points at this server
-#   CLAW_TYPE         openclaw (default) | nemoclaw
-#   LLM_PROVIDER      openclaw only: anthropic (default) | openai | openrouter | google | groq | mistral | deepseek | xai
-#   LLM_API_KEY       openclaw only: API key for the chosen provider (required)
-#   MODEL             openclaw only: model id (default depends on provider)
-#   SANDBOX_NAME      nemoclaw only, default: main
-#   INSTALL_PLUGIN    yes (default) | no
-#   SETUP_FIREWALL    yes (default) | no
+# You will be prompted for:
+#   - the domain served over HTTPS (its DNS A record must already point at this host)
+#   - OpenClaw: the LLM provider + API key + model  (NemoClaw asks these in its own wizard)
+#   - NemoClaw: the sandbox name
+#   - whether to install the iblai-openclaw-extensions plugin, and to configure UFW
+#   - optionally, whether to register + seed this instance on the ibl.ai platform
 #
 # Platform seeding (optional; runs only when IBLAI_API_KEY is set):
 #   IBLAI_API_KEY       ibl.ai platform API key -- presence enables seeding
@@ -54,7 +45,7 @@ set -euo pipefail
 # ---- configuration -----------------------------------------------------------
 # Each value comes from the environment (pre-set to skip its prompt), an
 # interactive prompt, or a default -- collect_config() below resolves them.
-CLAW_TYPE="${CLAW_TYPE:-}"
+HARNESS_TYPE="${HARNESS_TYPE:-}"
 DOMAIN="${DOMAIN:-}"
 LLM_PROVIDER="${LLM_PROVIDER:-}"
 LLM_API_KEY="${LLM_API_KEY:-}"
@@ -84,7 +75,7 @@ PLUGIN_DIR="/opt/iblai-openclaw-extensions"
 
 # Cache previously entered (non-secret) answers and reuse them as prompt defaults.
 CACHE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/iblai-claw-setup"
-CACHE_KEYS=(CLAW_TYPE DOMAIN LLM_PROVIDER MODEL SANDBOX_NAME INSTALL_PLUGIN SETUP_FIREWALL IBLAI_HOST IBLAI_ORG IBLAI_USER_ID IBLAI_CLAW_TYPE AGENT_NAME AGENT_ID)
+CACHE_KEYS=(HARNESS_TYPE DOMAIN LLM_PROVIDER MODEL SANDBOX_NAME INSTALL_PLUGIN SETUP_FIREWALL IBLAI_HOST IBLAI_ORG IBLAI_USER_ID IBLAI_CLAW_TYPE AGENT_NAME AGENT_ID)
 declare -A CACHED=()
 if [ -f "$CACHE_FILE" ]; then
   while IFS='=' read -r _k _v; do [ -n "$_k" ] && CACHED["$_k"]="$_v"; done < "$CACHE_FILE"
@@ -163,12 +154,12 @@ ART
 collect_config() {
   banner
 
-  prompt CLAW_TYPE "Claw type: openclaw or nemoclaw" openclaw
-  case "$CLAW_TYPE" in openclaw|nemoclaw) ;; *) die "CLAW_TYPE must be 'openclaw' or 'nemoclaw'";; esac
+  prompt HARNESS_TYPE "Harness type: openclaw or nemoclaw" openclaw
+  case "$HARNESS_TYPE" in openclaw|nemoclaw) ;; *) die "HARNESS_TYPE must be 'openclaw' or 'nemoclaw'";; esac
 
   prompt DOMAIN "Domain served over HTTPS (its DNS A record must already point here)"
 
-  if [ "$CLAW_TYPE" = nemoclaw ]; then
+  if [ "$HARNESS_TYPE" = nemoclaw ]; then
     prompt SANDBOX_NAME "NemoClaw sandbox name" main
   else
     # OpenClaw onboarding runs non-interactively, so collect the LLM provider + key here.
@@ -227,7 +218,7 @@ command -v apt-get >/dev/null 2>&1 || die "this installer targets Debian/Ubuntu 
 collect_config
 
 [ -n "$DOMAIN" ] || { usage; die "DOMAIN is required"; }
-if [ "$CLAW_TYPE" = openclaw ] && [ -z "$LLM_API_KEY" ]; then
+if [ "$HARNESS_TYPE" = openclaw ] && [ -z "$LLM_API_KEY" ]; then
   die "an LLM API key is required for openclaw (set LLM_API_KEY or enter it at the prompt)"
 fi
 
@@ -433,6 +424,11 @@ nemoclaw_install() {
   export CHAT_UI_URL="https://${DOMAIN}"
   persist_env CHAT_UI_URL "https://${DOMAIN}"
 
+  # The wizard asks for a sandbox name and every later host command is keyed on it,
+  # so it must match $SANDBOX_NAME. Say so before the installer's own wizard can run.
+  log "IMPORTANT: when the wizard asks for the sandbox NAME, enter exactly: ${SANDBOX_NAME}"
+  log "(that name is used for the port-forward, plugin install, and device pairing)"
+
   if ! command -v nemoclaw >/dev/null 2>&1; then
     log "Running the NVIDIA NemoClaw installer (interactive onboarding)"
     tty_run bash -c "$(curl -fsSL https://www.nvidia.com/nemoclaw.sh)"
@@ -449,7 +445,7 @@ nemoclaw_install() {
   # Read the gateway token straight off the host.
   OPENCLAW_GATEWAY_TOKEN="$(nemoclaw "$SANDBOX_NAME" gateway-token --quiet 2>/dev/null || true)"
   [ -n "$OPENCLAW_GATEWAY_TOKEN" ] \
-    || die "could not read gateway token for '${SANDBOX_NAME}'. Finish onboarding, then re-run."
+    || die "could not read the gateway token for sandbox '${SANDBOX_NAME}'. If you named it differently in the wizard, re-run with SANDBOX_NAME=<that-name>."
 
   # Ensure the host<->sandbox forward exists, and survive reboots via systemd.
   openshell forward start --background "127.0.0.1:${GATEWAY_PORT}" "$SANDBOX_NAME" 2>/dev/null || true
@@ -565,7 +561,7 @@ print_summary() {
   cat <<SUMMARY
 
 ============================================================================
- Server setup complete: ${CLAW_TYPE} @ ${server_url}
+ Server setup complete: ${HARNESS_TYPE} @ ${server_url}
 ============================================================================
 
  Gateway token (write-only; store it in ibl.ai as gateway_token):
@@ -602,7 +598,7 @@ REG
 
   echo
   echo " First platform config push mints a pending device pairing -- approve it once:"
-  if [ "$CLAW_TYPE" = openclaw ]; then
+  if [ "$HARNESS_TYPE" = openclaw ]; then
     cat <<'NEXT'
    openclaw devices list
    openclaw devices approve <requestId> --token "$OPENCLAW_GATEWAY_TOKEN"
@@ -616,9 +612,9 @@ NEXT
 
 # ---- main --------------------------------------------------------------------
 system_prep
-log "Setting up ${CLAW_TYPE} for ${DOMAIN}"
+log "Setting up ${HARNESS_TYPE} for ${DOMAIN}"
 gen_device_key
-if [ "$CLAW_TYPE" = openclaw ]; then
+if [ "$HARNESS_TYPE" = openclaw ]; then
   openclaw_install
   install_caddy
   setup_firewall
