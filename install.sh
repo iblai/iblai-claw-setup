@@ -295,6 +295,12 @@ setup_firewall() {
   ufw allow 22/tcp
   ufw allow 80/tcp
   ufw allow 443/tcp
+  if [ "$HARNESS_TYPE" = nemoclaw ]; then
+    # NemoClaw openshell gateway: sandbox bridge subnet -> host bridge gateway on 8080/tcp.
+    # 172.18.0.0/16 is the default openshell Docker bridge; adjust if yours differs.
+    log "Allowing NemoClaw openshell gateway (172.18.0.0/16 -> 172.18.0.1:8080/tcp)"
+    ufw allow from 172.18.0.0/16 to 172.18.0.1 port 8080 proto tcp
+  fi
   ufw --force enable
 }
 
