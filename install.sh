@@ -24,8 +24,11 @@
 #   - the domain served over HTTPS (its DNS A record must already point at this host)
 #   - OpenClaw: the LLM provider + API key + model  (NemoClaw asks these in its own wizard)
 #   - NemoClaw: the sandbox name
-#   - whether to install the iblai-openclaw-extensions plugin, and to configure UFW
+#   - whether to install the iblai-openclaw-extensions plugin
 #   - optionally, whether to register + seed this instance on the ibl.ai platform
+#
+# The UFW firewall (22/80/443, plus the openshell rule on NemoClaw) is set up
+# automatically -- pass SETUP_FIREWALL=no to skip it.
 #
 # Platform seeding (optional; runs only when IBLAI_API_KEY is set):
 #   IBLAI_API_KEY       ibl.ai platform API key -- presence enables seeding
@@ -182,7 +185,6 @@ collect_config() {
   fi
 
   prompt INSTALL_PLUGIN "Install the iblai-openclaw-extensions plugin? yes/no" yes
-  prompt SETUP_FIREWALL "Configure the UFW firewall (22/80/443)? yes/no" yes
 
   # Optional: register + seed the ibl.ai platform in the same run. The platform
   # host is intentionally not prompted -- override it with IBLAI_HOST if needed.
@@ -288,7 +290,8 @@ CADDY
 
 # ---- shared: host firewall ---------------------------------------------------
 setup_firewall() {
-  [ "$SETUP_FIREWALL" = yes ] || { log "Skipping UFW (SETUP_FIREWALL=$SETUP_FIREWALL)"; return; }
+  # Always configure the firewall unless explicitly disabled with SETUP_FIREWALL=no.
+  if [ "$SETUP_FIREWALL" = no ]; then log "Skipping UFW (SETUP_FIREWALL=no)"; return 0; fi
   command -v ufw >/dev/null 2>&1 || apt-get install -y ufw
   log "Configuring UFW (22, 80, 443)"
   ufw default allow outgoing
