@@ -292,7 +292,10 @@ CADDY
 setup_firewall() {
   # Always configure the firewall unless explicitly disabled with SETUP_FIREWALL=no.
   if [ "$SETUP_FIREWALL" = no ]; then log "Skipping UFW (SETUP_FIREWALL=no)"; return 0; fi
-  command -v ufw >/dev/null 2>&1 || apt-get install -y ufw
+  command -v ufw >/dev/null 2>&1 || {
+      log "Skipping UFW (not installed)"
+      return 0
+  }
   log "Configuring UFW (22, 80, 443)"
   ufw default allow outgoing
   ufw allow 22/tcp
@@ -624,14 +627,14 @@ system_prep
 log "Setting up ${HARNESS_TYPE} for ${DOMAIN}"
 gen_device_key
 if [ "$HARNESS_TYPE" = openclaw ]; then
+  setup_firewall
   openclaw_install
   install_caddy
-  setup_firewall
   openclaw_plugin
 else
+  setup_firewall
   nemoclaw_install
   install_caddy
-  setup_firewall
   nemoclaw_plugin
 fi
 
