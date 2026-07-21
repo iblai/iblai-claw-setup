@@ -162,10 +162,9 @@ collect_config() {
 
   prompt DOMAIN "Domain served over HTTPS (its DNS A record must already point here)"
 
-  if [ "$HARNESS_TYPE" = nemoclaw ]; then
-    prompt SANDBOX_NAME "NemoClaw sandbox name" main
-  else
-    # OpenClaw onboarding runs non-interactively, so collect the LLM provider + key here.
+  # OpenClaw onboarding runs non-interactively, so collect the LLM provider + key here.
+  # (NemoClaw asks its sandbox name later, in nemoclaw_install, after its own wizard.)
+  if [ "$HARNESS_TYPE" = openclaw ]; then
     prompt LLM_PROVIDER "LLM provider (anthropic, openai, openrouter, google, groq, mistral, deepseek, xai)" anthropic
     local key_env model_default
     case "$LLM_PROVIDER" in
@@ -197,8 +196,8 @@ collect_config() {
     prompt AGENT_NAME "Agent display name (the mentor shown on the platform)" "Claw Agent"
   fi
 
-  # Defaults for anything not prompted or left blank.
-  SANDBOX_NAME="${SANDBOX_NAME:-main}"
+  # Defaults for anything not prompted or left blank. SANDBOX_NAME is intentionally
+  # left unset here -- nemoclaw_install prompts for it after NemoClaw's own wizard.
   INSTALL_PLUGIN="${INSTALL_PLUGIN:-yes}"
   SETUP_FIREWALL="${SETUP_FIREWALL:-yes}"
   IBLAI_HOST="${IBLAI_HOST:-https://base.manager.iblai.app}"
@@ -436,21 +435,22 @@ nemoclaw_install() {
   export CHAT_UI_URL="https://${DOMAIN}"
   persist_env CHAT_UI_URL "https://${DOMAIN}"
 
-  # The wizard asks for a sandbox name and every later host command is keyed on it,
-  # so it must match $SANDBOX_NAME. Say so before the installer's own wizard can run.
-  log "IMPORTANT: when the wizard asks for the sandbox NAME, enter exactly: ${SANDBOX_NAME}"
-  log "(that name is used for the port-forward, plugin install, and device pairing)"
-
+  # NemoClaw's installer runs the onboarding wizard itself, so we must NOT onboard a
+  # second time -- that created a duplicate sandbox. Install it if missing:
   if ! command -v nemoclaw >/dev/null 2>&1; then
-    log "Running the NVIDIA NemoClaw installer (interactive onboarding)"
+    log "Installing NemoClaw and running its onboarding wizard"
+    log "Remember the sandbox NAME you choose -- you'll confirm it right after."
     tty_run bash -c "$(curl -fsSL https://www.nvidia.com/nemoclaw.sh)"
   else
     log "NemoClaw $(nemoclaw --version 2>/dev/null) already installed"
   fi
 
-  # Onboard a sandbox if the named one isn't up yet.
+  # Use the sandbox from that wizard. Ask for its name (cached for next time), and only
+  # onboard when it doesn't already exist -- so a normal run has exactly ONE onboarding.
+  prompt SANDBOX_NAME "NemoClaw sandbox name (from the wizard, or a name to create)" my-assistant
+  [ -n "$SANDBOX_NAME" ] || die "a NemoClaw sandbox name is required"
   if ! nemoclaw "$SANDBOX_NAME" status >/dev/null 2>&1; then
-    log "Onboarding sandbox '${SANDBOX_NAME}' (interactive; choose provider + enter API key here)"
+    log "Sandbox '${SANDBOX_NAME}' not found -- onboarding it now"
     tty_run nemoclaw onboard
   fi
 
