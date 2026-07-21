@@ -459,8 +459,10 @@ nemoclaw_install() {
   [ -n "$OPENCLAW_GATEWAY_TOKEN" ] \
     || die "could not read the gateway token for sandbox '${SANDBOX_NAME}'. If you named it differently in the wizard, re-run with SANDBOX_NAME=<that-name>."
 
-  # Ensure the host<->sandbox forward exists, and survive reboots via systemd.
-  openshell forward start --background "127.0.0.1:${GATEWAY_PORT}" "$SANDBOX_NAME" 2>/dev/null || true
+  # Persist the host<->sandbox forward across reboots via systemd. Onboarding may
+  # already have forwarded the port, so ExecStartPre stops any existing forward first
+  # (the leading '-' ignores "nothing to stop") -- otherwise ExecStart fails with
+  # "port already forwarded". RemainAfterExit keeps the oneshot "active".
   log "Installing nemoclaw-forward.service"
   cat > /etc/systemd/system/nemoclaw-forward.service <<UNIT
 [Unit]
@@ -472,6 +474,7 @@ Requires=docker.service
 Type=oneshot
 RemainAfterExit=yes
 User=root
+ExecStartPre=-/usr/local/bin/openshell forward stop ${GATEWAY_PORT} ${SANDBOX_NAME}
 ExecStart=/usr/local/bin/openshell forward start --background 127.0.0.1:${GATEWAY_PORT} ${SANDBOX_NAME}
 ExecStop=/usr/local/bin/openshell forward stop ${GATEWAY_PORT} ${SANDBOX_NAME}
 
