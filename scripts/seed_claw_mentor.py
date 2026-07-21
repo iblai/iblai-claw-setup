@@ -15,7 +15,7 @@ Example (explicit args, override all defaults):
 
     python seed_claw_mentor.py \\
         --api-key sk_live_abc123 \\
-        --host https://base.manager.iblai.app \\
+        --host https://api.iblai.app/dm \\
         --tenant-key acme \\
         --user-id admin \\
         --agent-name "Patient Navigator" \\
@@ -39,7 +39,7 @@ import requests
 # Any value passed via a CLI argument takes precedence.
 
 DUMMY_API_KEY = "your-api-key-here"
-DUMMY_HOST = "https://base.manager.iblai.app"
+DUMMY_HOST = "https://api.iblai.app/dm"
 DUMMY_TENANT_KEY = "main"
 DUMMY_USER_ID = "admin"
 

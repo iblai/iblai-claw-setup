@@ -32,7 +32,7 @@
 #
 # Platform seeding (optional; runs only when IBLAI_API_KEY is set):
 #   IBLAI_API_KEY       ibl.ai platform API key -- presence enables seeding
-#   IBLAI_HOST          env var only (not prompted); default: https://base.manager.iblai.app
+#   IBLAI_HOST          env var only (not prompted); default: https://api.iblai.app/dm
 #   IBLAI_ORG           tenant/org slug, default: main
 #   IBLAI_USER_ID       mentor owner, default: admin
 #   IBLAI_CLAW_TYPE     platform claw_type, default: openclaw
@@ -200,7 +200,7 @@ collect_config() {
   # left unset here -- nemoclaw_install prompts for it after NemoClaw's own wizard.
   INSTALL_PLUGIN="${INSTALL_PLUGIN:-yes}"
   SETUP_FIREWALL="${SETUP_FIREWALL:-yes}"
-  IBLAI_HOST="${IBLAI_HOST:-https://base.manager.iblai.app}"
+  IBLAI_HOST="${IBLAI_HOST:-https://api.iblai.app/dm}"
   IBLAI_ORG="${IBLAI_ORG:-main}"
   IBLAI_USER_ID="${IBLAI_USER_ID:-admin}"
   IBLAI_CLAW_TYPE="${IBLAI_CLAW_TYPE:-openclaw}"
@@ -507,7 +507,12 @@ nemoclaw_plugin() {
   log "Installing + enabling iblai-openclaw-extensions in the sandbox"
   nemoclaw "$SANDBOX_NAME" exec --no-tty -- openclaw plugins install /tmp/iblai-openclaw-extensions
   nemoclaw "$SANDBOX_NAME" exec --no-tty -- openclaw plugins enable iblai-openclaw-extensions
-  nemoclaw "$SANDBOX_NAME" restart
+  # Reload the gateway to pick up the plugin. NemoClaw has no 'restart' action, so
+  # stop + start the sandbox, then re-establish the host forward it drops.
+  log "Reloading the sandbox to load the plugin"
+  nemoclaw "$SANDBOX_NAME" stop || true
+  nemoclaw "$SANDBOX_NAME" start
+  systemctl restart nemoclaw-forward.service 2>/dev/null || true
 }
 
 nemoclaw_healthcheck() {
