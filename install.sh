@@ -107,12 +107,23 @@ tty_run() {
 # on the terminal (blank input takes the default). A terminal is required (main
 # checks have_tty up front and errors out otherwise).
 prompt() {
-  local var="$1" msg="$2" def="${3-}" secret="${4-}" ans
+  local var="$1" msg="$2" def="${3-}" secret="${4-}" ans ch
   [ -n "${!var-}" ] && return 0
   [ -n "${CACHED[$var]:-}" ] && def="${CACHED[$var]}"
   if [ -n "$secret" ]; then
+    # Masked input: echo '*' per char (Enter ends input, Backspace/DEL erases).
     printf '%s: ' "$msg" >/dev/tty
-    read -rs ans </dev/tty; printf '\n' >/dev/tty
+    ans=''
+    while IFS= read -rsn1 ch </dev/tty; do
+      [ -z "$ch" ] && break
+      if [ "$ch" = $'\177' ] || [ "$ch" = $'\b' ]; then
+        [ -n "$ans" ] && { ans="${ans%?}"; printf '\b \b' >/dev/tty; }
+        continue
+      fi
+      ans+="$ch"
+      printf '*' >/dev/tty
+    done
+    printf '\n' >/dev/tty
   elif [ -n "$def" ]; then
     printf '%s [%s]: ' "$msg" "$def" >/dev/tty; read -r ans </dev/tty
   else
@@ -180,7 +191,7 @@ collect_config() {
     esac
     LLM_KEY_ENV="$key_env"
     prompt MODEL "Model id" "$model_default"
-    prompt LLM_API_KEY "${LLM_PROVIDER} API key"
+    prompt LLM_API_KEY "${LLM_PROVIDER} API key" "" secret
   fi
 
   prompt INSTALL_PLUGIN "Install the iblai-openclaw-extensions plugin? yes/no" yes
@@ -191,10 +202,10 @@ collect_config() {
     IBLAI_SEED=yes
   fi
   if [ -n "$IBLAI_API_KEY" ] || [ "${IBLAI_SEED:-no}" = yes ]; then
-    prompt IBLAI_API_KEY "ibl.ai platform API key"          # echoed on purpose (not hidden)
+    prompt IBLAI_ORG "ibl.ai platform key" main
+    prompt IBLAI_API_KEY "ibl.ai platform API key" "" secret
     prompt IBLAI_USER_ID "Your ibl.ai username (find it at https://login.iblai.app/me)"
     [ -n "$IBLAI_USER_ID" ] || die "an ibl.ai username is required to register on the platform (see https://login.iblai.app/me)"
-    prompt IBLAI_ORG "ibl.ai platform key" main
     prompt AGENT_NAME "Agent display name (the mentor shown on the platform)" "Claw Agent"
   fi
 
