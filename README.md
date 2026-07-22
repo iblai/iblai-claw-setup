@@ -86,23 +86,7 @@ LLM Provider (Anthropic, OpenRouter, etc.)
 | **Firewall** | Ports 80 and 443 open inbound |
 | **ibl.ai account** | Platform org key and API credentials |
 
-## Quick Start
-
-### Automated setup (one command)
-
-On a fresh Debian/Ubuntu server, run [`install.sh`](install.sh). `HARNESS_TYPE` is the only variable you set (default `openclaw`); everything else is asked interactively:
-
-```bash
-# OpenClaw (default)
-curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh | bash
-
-# NemoClaw
-curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh | HARNESS_TYPE=nemoclaw bash
-```
-
-It prompts for the domain, the LLM provider + API key (OpenClaw) or runs NemoClaw's own wizard, the sandbox / plugin / firewall choices, and whether to register on ibl.ai. Then it does the whole server side -- OpenClaw (or NemoClaw), Caddy with automatic TLS, the firewall, and the `iblai-openclaw-extensions` plugin -- and optionally the platform side (claw instance + mentor via [`scripts/seed_claw_mentor.py`](scripts/seed_claw_mentor.py), wiring in the device key). Finally it prints the gateway token, an Ed25519 device key, and the API call to register the instance.
-
-Point your domain's DNS A record at the server and open ports 80/443 first. Answers are cached in `~/.cache/iblai-claw-setup` and offered as defaults next time. Re-running is safe -- it never regenerates an existing token or key. Prefer the manual steps below to understand each piece.
+## Manual Setup
 
 ### 1. Set up the server
 
