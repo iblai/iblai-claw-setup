@@ -34,7 +34,7 @@
 #   IBLAI_API_KEY       ibl.ai platform API key -- presence enables seeding
 #   IBLAI_HOST          env var only (not prompted); default: https://api.iblai.app/dm
 #   IBLAI_ORG           tenant/org slug, default: main
-#   IBLAI_USER_ID       mentor owner, default: admin
+#   IBLAI_USER_ID       your ibl.ai username (login.iblai.app/me) -- required for seeding
 #   IBLAI_CLAW_TYPE     platform claw_type, default: openclaw
 #   AGENT_NAME       default: Claw Agent  (also AGENT_DESCRIPTION, AGENT_ID, AGENT_CONFIG)
 #
@@ -192,6 +192,8 @@ collect_config() {
   fi
   if [ -n "$IBLAI_API_KEY" ] || [ "${IBLAI_SEED:-no}" = yes ]; then
     prompt IBLAI_API_KEY "ibl.ai platform API key"          # echoed on purpose (not hidden)
+    prompt IBLAI_USER_ID "Your ibl.ai username (find it at https://login.iblai.app/me)"
+    [ -n "$IBLAI_USER_ID" ] || die "an ibl.ai username is required to register on the platform (see https://login.iblai.app/me)"
     prompt IBLAI_ORG "ibl.ai platform key" main
     prompt AGENT_NAME "Agent display name (the mentor shown on the platform)" "Claw Agent"
   fi
@@ -202,7 +204,6 @@ collect_config() {
   SETUP_FIREWALL="${SETUP_FIREWALL:-yes}"
   IBLAI_HOST="${IBLAI_HOST:-https://api.iblai.app/dm}"
   IBLAI_ORG="${IBLAI_ORG:-main}"
-  IBLAI_USER_ID="${IBLAI_USER_ID:-admin}"
   IBLAI_CLAW_TYPE="${IBLAI_CLAW_TYPE:-openclaw}"
   AGENT_NAME="${AGENT_NAME:-Claw Agent}"
   AGENT_ID="${AGENT_ID:-main}"
