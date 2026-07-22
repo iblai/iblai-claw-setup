@@ -15,11 +15,11 @@ Example (explicit args, override all defaults):
 
     python seed_claw_mentor.py \\
         --api-key sk_live_abc123 \\
-        --host https://base.manager.iblai.app \\
+        --host https://api.iblai.app/dm \\
         --tenant-key acme \\
         --user-id admin \\
-        --mentor-name "Patient Navigator" \\
-        --mentor-description "Guides patients through care pathways." \\
+        --agent-name "Patient Navigator" \\
+        --agent-description "Guides patients through care pathways." \\
         --claw-name "Healthcare Claw" \\
         --claw-server-url https://claw.acme.internal \\
         --claw-gateway-token secret-token \\
@@ -39,17 +39,17 @@ import requests
 # Any value passed via a CLI argument takes precedence.
 
 DUMMY_API_KEY = "your-api-key-here"
-DUMMY_HOST = "https://base.manager.iblai.app"
+DUMMY_HOST = "https://api.iblai.app/dm"
 DUMMY_TENANT_KEY = "main"
 DUMMY_USER_ID = "admin"
 
-DUMMY_MENTOR_NAME = "Test Mentor Agent"
-DUMMY_MENTOR_DESCRIPTION = "A test mentor created by seed_claw_mentor.py."
+DUMMY_AGENT_NAME = "Test Mentor Agent"
+DUMMY_AGENT_DESCRIPTION = "A test mentor created by seed_claw_mentor.py."
 
 DUMMY_CLAW_NAME = "Test Claw Instance"
 DUMMY_CLAW_SERVER_URL = "https://claw.example.com"
 DUMMY_CLAW_GATEWAY_TOKEN = "dummy-gateway-token-change-me"
-DUMMY_CLAW_TYPE = "openclaw"  # "openclaw" | "ironclaw"
+DUMMY_CLAW_TYPE = "openclaw"  # "openclaw" | "ironclaw" | "nemoclaw"
 
 DUMMY_AGENT_ID = "main"  # empty → derived from mentor name slug
 DUMMY_AGENT_CONFIG = {}  # dict of agent config fields, e.g. {"identity": "...", "soul": "..."}
@@ -74,6 +74,7 @@ def create_claw_instance(
     server_url: str,
     gateway_token: str,
     claw_type: str = "openclaw",
+    connection_params: dict | None = None,
 ) -> dict:
     """POST /orgs/{org}/claw/instances/ — returns the created ClawInstance JSON."""
     print("Create Claw Instance")
@@ -84,6 +85,9 @@ def create_claw_instance(
         "server_url": server_url,
         "gateway_token": gateway_token,
     }
+    if connection_params:
+        # Ed25519 device identity, required for OpenClaw config push (missing → "missing scope").
+        payload["connection_params"] = connection_params
     response = session.post(url, json=payload, timeout=60)
     response.raise_for_status()
     return response.json()
@@ -193,6 +197,7 @@ def run(
     claw_type: str,
     agent_id: str,
     agent_config: dict,
+    connection_params: dict | None = None,
 ) -> int:
     """Execute the full create sequence. Returns 0 on success, 1 on failure."""
 
@@ -201,7 +206,7 @@ def run(
     try:
         claw_instance = create_claw_instance(
             session, host, tenant_key, claw_name, claw_server_url,
-            claw_gateway_token, claw_type,
+            claw_gateway_token, claw_type, connection_params,
         )
     except requests.HTTPError as exc:
         print(
@@ -323,16 +328,16 @@ def parse_args() -> argparse.Namespace:
         "--user-id", default=DUMMY_USER_ID, help="User id (mentor owner)"
     )
 
-    # Mentor
+    # Agent
     parser.add_argument(
-        "--mentor-name",
-        default=DUMMY_MENTOR_NAME,
-        help="Display name for the new mentor",
+        "--agent-name",
+        default=DUMMY_AGENT_NAME,
+        help="Display name for the new agent",
     )
     parser.add_argument(
-        "--mentor-description",
-        default=DUMMY_MENTOR_DESCRIPTION or None,
-        help="Short description for the mentor (optional)",
+        "--agent-description",
+        default=DUMMY_AGENT_DESCRIPTION or None,
+        help="Short description for the agent (optional)",
     )
 
     # Claw instance
@@ -354,8 +359,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--claw-type",
         default=DUMMY_CLAW_TYPE,
-        choices=["openclaw", "ironclaw"],
+        choices=["openclaw", "ironclaw", "nemoclaw"],
         help="Claw instance type (default: openclaw)",
+    )
+    parser.add_argument(
+        "--device-key-pem",
+        default=None,
+        help=(
+            "Path to an Ed25519 PKCS8 private-key PEM. Sent as "
+            "connection_params.device_identity.private_key_pem "
+            "(required for OpenClaw device identity / config push)."
+        ),
     )
 
     # Agent config
@@ -398,6 +412,16 @@ def main() -> int:
     elif DUMMY_AGENT_CONFIG:
         agent_config = DUMMY_AGENT_CONFIG
 
+    connection_params: dict = {}
+    if args.device_key_pem:
+        try:
+            with open(args.device_key_pem, encoding="utf-8") as fh:
+                pem = fh.read()
+        except OSError as exc:
+            print(f"--device-key-pem could not be read: {exc}", file=sys.stderr)
+            return 2
+        connection_params = {"device_identity": {"private_key_pem": pem}}
+
     session = requests.Session()
     session.headers.update(
         {
@@ -412,14 +436,15 @@ def main() -> int:
         host=host,
         tenant_key=args.tenant_key,
         user_id=args.user_id,
-        mentor_name=args.mentor_name,
-        mentor_description=args.mentor_description,
+        mentor_name=args.agent_name,
+        mentor_description=args.agent_description,
         claw_name=args.claw_name,
         claw_server_url=args.claw_server_url,
         claw_gateway_token=args.claw_gateway_token,
         claw_type=args.claw_type,
         agent_id=args.agent_id,
         agent_config=agent_config,
+        connection_params=connection_params or None,
     )
 
 

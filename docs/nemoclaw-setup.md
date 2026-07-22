@@ -244,8 +244,21 @@ Identical to OpenClaw. See [OpenClaw Part 3](server-setup.md#part-3-firewall). S
 | Inbound   | TCP      | 22   | Management IPs           | SSH            |
 | Inbound   | TCP      | 80   | `0.0.0.0/0`              | ACME challenge |
 | Inbound   | TCP      | 443  | `0.0.0.0/0` or allowlist | HTTPS          |
+| Local     | TCP      | 8080 | `172.18.0.0/16` → `172.18.0.1` | openshell gateway (sandbox bridge → host) |
 
 Port `18789` should **not** be exposed on the cloud firewall. All external traffic goes through Caddy on 443.
+
+**NemoClaw-only host rule (UFW):** the openshell gateway needs the sandbox's Docker
+bridge subnet to reach the host bridge gateway on port 8080, or the sandbox can't
+talk to the gateway:
+
+```bash
+ufw allow from 172.18.0.0/16 to 172.18.0.1 port 8080 proto tcp
+```
+
+`172.18.0.0/16` is the default openshell Docker bridge; adjust if your host's bridge
+subnet differs (check with `docker network inspect`). `install.sh` adds this rule
+automatically for the NemoClaw path.
 
 ---
 
