@@ -16,11 +16,16 @@ Connect self-hosted claw servers (OpenClaw, NVIDIA NemoClaw) to the [ibl.ai](htt
 
 On a fresh Debian/Ubuntu server, run [`install.sh`](install.sh). `HARNESS_TYPE` is the only variable you set (default `openclaw`); everything else is asked interactively:
 
-```bash
-# OpenClaw (default)
-curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh | bash
 
-# NemoClaw
+### OpenClaw (default)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh | bash
+```
+
+### NemoClaw
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/iblai/claw-setup/main/install.sh | HARNESS_TYPE=nemoclaw bash
 ```
 
