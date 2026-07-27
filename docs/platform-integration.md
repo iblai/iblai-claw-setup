@@ -13,11 +13,11 @@ Once connected, your claw instance is accessible from all ibl.ai applications: M
 2. Test connectivity        POST claw/instances/<id>/test-connectivity/
 3. Add model providers      POST claw/model-providers/
 4. Push providers           POST claw/instances/<id>/push-providers/
-5. Bind mentor              POST claw/mentor-configs/
-6. Configure agent          PATCH agent-configs/<id>/
+5. Bind mentor              POST mentors/<mentor>/claw-config/
+6. Configure agent          PATCH mentors/<mentor>/agent-config/
 7. Create skills            POST agent-skills/  +  POST agent-skill-resources/
 8. Assign skills            POST mentor-skill-assignments/
-9. Push config              POST claw/mentor-configs/<id>/push-config/
+9. Push config              POST mentors/<mentor>/claw-config/push-config/
 ```
 
 All API calls use base path `/api/ai-mentor/orgs/<your-org>/` and require authentication.
@@ -234,11 +234,10 @@ The `credential_resolved` field in provider responses indicates whether an LLMCr
 ### Bind a mentor to the instance
 
 ```http
-POST /api/ai-mentor/orgs/<your-org>/claw/mentor-configs/
+POST /api/ai-mentor/orgs/<your-org>/mentors/<mentor>/claw-config/
 Content-Type: application/json
 
 {
-  "mentor": "<mentor-unique-id>",
   "server": 1,
   "enabled": true
 }
@@ -271,11 +270,11 @@ This automatically creates an `AgentConfig` for the mentor if one doesn't exist.
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `claw/mentor-configs/` | GET | List bindings. Filter: `enabled`. |
-| `claw/mentor-configs/<id>/` | GET | Retrieve binding |
-| `claw/mentor-configs/<id>/` | PATCH | Update binding |
-| `claw/mentor-configs/<id>/` | DELETE | Delete binding |
-| `claw/mentor-configs/<id>/push-config/` | POST | Push configuration to the instance |
+| `mentors/<mentor>/claw-config/` | GET | List bindings. Filter: `enabled`. |
+| `mentors/<mentor>/claw-config/` | GET | Retrieve binding |
+| `mentors/<mentor>/claw-config/` | PATCH | Update binding |
+| `mentors/<mentor>/claw-config/` | DELETE | Delete binding |
+| `mentors/<mentor>/claw-config/push-config/` | POST | Push configuration to the instance |
 
 ### Configure the agent
 
@@ -285,7 +284,7 @@ Agent configuration defines the workspace files and settings that get pushed to 
 > A claw-backed mentor does not inherit the mentor's platform `system_prompt`. The claw agent is driven entirely by the agent-config fields below (`identity`, `soul`, and the rest), and that config starts empty when you bind the mentor. Enter the persona and behavior here, or the agent runs with no instructions.
 
 ```http
-PATCH /api/ai-mentor/orgs/<your-org>/agent-configs/<id>/
+PATCH /api/ai-mentor/orgs/<your-org>/mentors/<mentor>/agent-config/
 Content-Type: application/json
 
 {
@@ -310,12 +309,22 @@ Content-Type: application/json
 
 All text fields are optional and default to empty string. The `config` field defaults to `{}`.
 
+> [!WARNING]
+> **Unrecognized keys are silently ignored.** A `PATCH` carrying `user` instead of
+> `user_context` still returns `200 OK`, but the value is dropped — USER.md is pushed
+> empty. Re-`GET` the agent-config after writing and confirm each field is non-empty
+> before pushing; the response body is the only confirmation you get.
+>
+> This matters with `auto_push` enabled: a field left empty here is pushed as empty and
+> **blanks the corresponding file on the instance**. Populate the agent-config fully
+> before the first push, or back the workspace files up on the server first.
+
 **Blocked config paths** (rejected on write): `gateway.auth`, `gateway.controlUi.dangerouslyDisableDeviceAuth`, `tools.exec.host`, `sandbox.mode`, `hooks.allowUnsafeExternalContent`.
 
 ### Push configuration to the instance
 
 ```http
-POST /api/ai-mentor/orgs/<your-org>/claw/mentor-configs/<id>/push-config/
+POST /api/ai-mentor/orgs/<your-org>/mentors/<mentor>/claw-config/push-config/
 ```
 
 **Response (202 Accepted):**
@@ -457,11 +466,10 @@ curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/claw/instances/1
 ### 3. Bind a mentor
 
 ```bash
-curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/claw/mentor-configs/ \
+curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/mentors/<mentor>/claw-config/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Api-Token YOUR_API_TOKEN" \
   -d '{
-    "mentor": "6f29a5eb-c657-4a76-8a19-4ea58175d008",
     "server": 1,
     "enabled": true
   }'
@@ -471,7 +479,7 @@ curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/claw/mentor-conf
 ### 4. Configure the agent
 
 ```bash
-curl -X PATCH https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/agent-configs/1/ \
+curl -X PATCH https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/mentors/<mentor>/agent-config/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Api-Token YOUR_API_TOKEN" \
   -d '{
@@ -488,7 +496,7 @@ curl -X PATCH https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/agent-configs/1
 ### 5. Push config
 
 ```bash
-curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/claw/mentor-configs/1/push-config/ \
+curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/mentors/<mentor>/claw-config/push-config/ \
   -H "Authorization: Api-Token YOUR_API_TOKEN"
 # Response: {"queued": true, "message": "Config push queued."}
 ```
@@ -531,22 +539,22 @@ All endpoints are tenant-scoped under `/api/ai-mentor/orgs/<org>/`. Responses ar
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `claw/mentor-configs/` | Create binding |
-| GET | `claw/mentor-configs/` | List bindings |
-| GET | `claw/mentor-configs/<id>/` | Retrieve binding |
-| PATCH | `claw/mentor-configs/<id>/` | Update binding |
-| DELETE | `claw/mentor-configs/<id>/` | Delete binding |
-| POST | `claw/mentor-configs/<id>/push-config/` | Push configuration |
+| POST | `mentors/<mentor>/claw-config/` | Create binding |
+| GET | `mentors/<mentor>/claw-config/` | Retrieve binding (`404 {"detail":"Claw config not found"}` = not bound yet) |
+| PATCH | `mentors/<mentor>/claw-config/` | Update binding |
+| DELETE | `mentors/<mentor>/claw-config/` | Delete binding |
+| POST | `mentors/<mentor>/claw-config/push-config/` | Push configuration |
+
+The binding is addressed by the mentor's UUID in the path, so there is no
+collection-level list or numeric-id form.
 
 ### Agent Configs
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `agent-configs/` | Create config |
-| GET | `agent-configs/` | List configs |
-| GET | `agent-configs/<id>/` | Retrieve config |
-| PATCH | `agent-configs/<id>/` | Update config |
-| DELETE | `agent-configs/<id>/` | Delete config |
+| GET | `mentors/<mentor>/agent-config/` | Retrieve config |
+| PATCH | `mentors/<mentor>/agent-config/` | Update config |
+| DELETE | `mentors/<mentor>/agent-config/` | Delete config |
 
 ### Agent Skills
 
