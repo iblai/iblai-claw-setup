@@ -36,15 +36,18 @@ Authorization: Api-Token <YOUR_API_TOKEN>
 > rejected with `401 {"detail":"Invalid Token"}` even when the token is valid for the
 > org — the failure looks like a bad credential, but it is the scheme.
 
-### Against the hosted ibl.ai deployment (`iblai.app`)
+### Against the hosted ibl.ai deployment
 
-The hosted platform serves its APIs under a **`/dm` prefix**, so the base URL is
-`https://api.iblai.app/dm` and full paths look like
-`https://api.iblai.app/dm/api/ai-mentor/orgs/<org>/…`. This matches the `IBLAI_HOST`
-default in [`install.sh`](../install.sh) and
-[`scripts/seed_claw_mentor.py`](../scripts/seed_claw_mentor.py).
+Two host forms work and return identical responses — **but they differ in path prefix**,
+so pick one and stay consistent:
 
-Calling `https://api.iblai.app` **without** `/dm` returns:
+| Base URL | Full path | Notes |
+|---|---|---|
+| `https://platform.iblai.app` | `/api/ai-mentor/orgs/<org>/…` | No prefix. Used by the examples in this guide. |
+| `https://api.iblai.app/dm` | `/dm/api/ai-mentor/orgs/<org>/…` | Requires `/dm`. This is the `IBLAI_HOST` default in [`install.sh`](../install.sh) and [`scripts/seed_claw_mentor.py`](../scripts/seed_claw_mentor.py). |
+
+Mixing them fails: `platform.iblai.app/dm/api/…` and `api.iblai.app/api/…` both 404.
+Calling `https://api.iblai.app` without `/dm` returns:
 
 ```json
 {"error": "Invalid API path. Use /dm/, /asgi/, /lms/, or /studio/"}
@@ -53,7 +56,7 @@ Calling `https://api.iblai.app` **without** `/dm` returns:
 A complete, working call — list the claw instances registered on your org:
 
 ```bash
-export IBLAI_HOST=https://api.iblai.app/dm
+export IBLAI_HOST=https://platform.iblai.app     # or https://api.iblai.app/dm
 export IBLAI_ORG=<your-org>
 export IBLAI_API_KEY=<your-platform-api-token>
 
@@ -443,7 +446,7 @@ Here's a full walkthrough: register a server, bind a mentor, configure it, and p
 ### 1. Register the instance
 
 ```bash
-curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/claw/instances/ \
+curl -X POST https://platform.iblai.app/api/ai-mentor/orgs/my-org/claw/instances/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Api-Token YOUR_API_TOKEN" \
   -d '{
@@ -458,7 +461,7 @@ curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/claw/instances/ 
 ### 2. Test connectivity
 
 ```bash
-curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/claw/instances/1/test-connectivity/ \
+curl -X POST https://platform.iblai.app/api/ai-mentor/orgs/my-org/claw/instances/1/test-connectivity/ \
   -H "Authorization: Api-Token YOUR_API_TOKEN"
 # Both checks should pass
 ```
@@ -466,7 +469,7 @@ curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/claw/instances/1
 ### 3. Bind a mentor
 
 ```bash
-curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/mentors/<mentor>/claw-config/ \
+curl -X POST https://platform.iblai.app/api/ai-mentor/orgs/my-org/mentors/<mentor>/claw-config/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Api-Token YOUR_API_TOKEN" \
   -d '{
@@ -479,7 +482,7 @@ curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/mentors/<mentor>
 ### 4. Configure the agent
 
 ```bash
-curl -X PATCH https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/mentors/<mentor>/agent-config/ \
+curl -X PATCH https://platform.iblai.app/api/ai-mentor/orgs/my-org/mentors/<mentor>/agent-config/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Api-Token YOUR_API_TOKEN" \
   -d '{
@@ -496,7 +499,7 @@ curl -X PATCH https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/mentors/<mentor
 ### 5. Push config
 
 ```bash
-curl -X POST https://api.iblai.app/dm/api/ai-mentor/orgs/my-org/mentors/<mentor>/claw-config/push-config/ \
+curl -X POST https://platform.iblai.app/api/ai-mentor/orgs/my-org/mentors/<mentor>/claw-config/push-config/ \
   -H "Authorization: Api-Token YOUR_API_TOKEN"
 # Response: {"queued": true, "message": "Config push queued."}
 ```

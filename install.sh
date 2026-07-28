@@ -611,8 +611,9 @@ SUMMARY
     cat <<REG
 
  Register this instance with ibl.ai -- fill in <ORG> and <API_TOKEN>.
- <PLATFORM_HOST> is api.iblai.app/dm on the hosted deployment (note the /dm prefix);
- self-hosted platforms use their own host. The auth scheme is Api-Token, not Token.
+ On the hosted deployment <PLATFORM_HOST> is platform.iblai.app (paths as shown below),
+ or api.iblai.app/dm if you prefer the /dm-prefixed form; self-hosted platforms use
+ their own host. The auth scheme is Api-Token, not Token.
 
    curl -X POST https://<PLATFORM_HOST>/api/ai-mentor/orgs/<ORG>/claw/instances/ \\
      -H "Authorization: Api-Token <API_TOKEN>" \\
