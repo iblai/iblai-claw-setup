@@ -13,14 +13,70 @@ Once connected, your claw instance is accessible from all ibl.ai applications: M
 2. Test connectivity        POST claw/instances/<id>/test-connectivity/
 3. Add model providers      POST claw/model-providers/
 4. Push providers           POST claw/instances/<id>/push-providers/
-5. Bind mentor              POST claw/mentor-configs/
-6. Configure agent          PATCH agent-configs/<id>/
+5. Bind mentor              POST mentors/<mentor>/claw-config/
+6. Configure agent          PATCH mentors/<mentor>/agent-config/
 7. Create skills            POST agent-skills/  +  POST agent-skill-resources/
 8. Assign skills            POST mentor-skill-assignments/
-9. Push config              POST claw/mentor-configs/<id>/push-config/
+9. Push config              POST mentors/<mentor>/claw-config/push-config/
 ```
 
 All API calls use base path `/api/ai-mentor/orgs/<your-org>/` and require authentication.
+
+---
+
+## Authentication and base URL
+
+Every request carries a **Platform API Token** in an `Api-Token` header:
+
+```
+Authorization: Api-Token <YOUR_API_TOKEN>
+```
+
+> **The scheme is `Api-Token`, not `Token`.** A plain `Authorization: Token …` is
+> rejected with `401 {"detail":"Invalid Token"}` even when the token is valid for the
+> org — the failure looks like a bad credential, but it is the scheme.
+
+### Against the hosted ibl.ai deployment
+
+Two host forms work and return identical responses — **but they differ in path prefix**,
+so pick one and stay consistent:
+
+| Base URL | Full path | Notes |
+|---|---|---|
+| `https://platform.iblai.app` | `/api/ai-mentor/orgs/<org>/…` | No prefix. Used by the examples in this guide. |
+| `https://api.iblai.app/dm` | `/dm/api/ai-mentor/orgs/<org>/…` | Requires `/dm`. This is the `IBLAI_HOST` default in [`install.sh`](../install.sh) and [`scripts/seed_claw_mentor.py`](../scripts/seed_claw_mentor.py). |
+
+Mixing them fails: `platform.iblai.app/dm/api/…` and `api.iblai.app/api/…` both 404.
+Calling `https://api.iblai.app` without `/dm` returns:
+
+```json
+{"error": "Invalid API path. Use /dm/, /asgi/, /lms/, or /studio/"}
+```
+
+A complete, working call — list the claw instances registered on your org:
+
+```bash
+export IBLAI_HOST=https://platform.iblai.app     # or https://api.iblai.app/dm
+export IBLAI_ORG=<your-org>
+export IBLAI_API_KEY=<your-platform-api-token>
+
+curl -sS "$IBLAI_HOST/api/ai-mentor/orgs/$IBLAI_ORG/claw/instances/" \
+  -H "Authorization: Api-Token $IBLAI_API_KEY"
+# → []   (empty list until you register your first instance)
+```
+
+If you don't know your org's admin username — needed for the mentor endpoints — read it
+straight from the API with the same two values:
+
+```bash
+curl -sS "$IBLAI_HOST/api/core/platform/users/?platform_key=$IBLAI_ORG&platform_org=$IBLAI_ORG&page=1&page_size=5" \
+  -H "Authorization: Api-Token $IBLAI_API_KEY" \
+  | python3 -c "import sys,json;[print(u['username'], u.get('is_admin')) for u in json.load(sys.stdin)['results']]"
+# pick an is_admin=True username
+```
+
+Self-hosted platform deployments use their own host and may not carry the `/dm` prefix —
+substitute your own base URL throughout the examples below.
 
 ---
 
@@ -181,11 +237,10 @@ The `credential_resolved` field in provider responses indicates whether an LLMCr
 ### Bind a mentor to the instance
 
 ```http
-POST /api/ai-mentor/orgs/<your-org>/claw/mentor-configs/
+POST /api/ai-mentor/orgs/<your-org>/mentors/<mentor>/claw-config/
 Content-Type: application/json
 
 {
-  "mentor": "<mentor-unique-id>",
   "server": 1,
   "enabled": true
 }
@@ -218,11 +273,11 @@ This automatically creates an `AgentConfig` for the mentor if one doesn't exist.
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `claw/mentor-configs/` | GET | List bindings. Filter: `enabled`. |
-| `claw/mentor-configs/<id>/` | GET | Retrieve binding |
-| `claw/mentor-configs/<id>/` | PATCH | Update binding |
-| `claw/mentor-configs/<id>/` | DELETE | Delete binding |
-| `claw/mentor-configs/<id>/push-config/` | POST | Push configuration to the instance |
+| `mentors/<mentor>/claw-config/` | GET | List bindings. Filter: `enabled`. |
+| `mentors/<mentor>/claw-config/` | GET | Retrieve binding |
+| `mentors/<mentor>/claw-config/` | PATCH | Update binding |
+| `mentors/<mentor>/claw-config/` | DELETE | Delete binding |
+| `mentors/<mentor>/claw-config/push-config/` | POST | Push configuration to the instance |
 
 ### Configure the agent
 
@@ -232,7 +287,7 @@ Agent configuration defines the workspace files and settings that get pushed to 
 > A claw-backed mentor does not inherit the mentor's platform `system_prompt`. The claw agent is driven entirely by the agent-config fields below (`identity`, `soul`, and the rest), and that config starts empty when you bind the mentor. Enter the persona and behavior here, or the agent runs with no instructions.
 
 ```http
-PATCH /api/ai-mentor/orgs/<your-org>/agent-configs/<id>/
+PATCH /api/ai-mentor/orgs/<your-org>/mentors/<mentor>/agent-config/
 Content-Type: application/json
 
 {
@@ -257,12 +312,22 @@ Content-Type: application/json
 
 All text fields are optional and default to empty string. The `config` field defaults to `{}`.
 
+> [!WARNING]
+> **Unrecognized keys are silently ignored.** A `PATCH` carrying `user` instead of
+> `user_context` still returns `200 OK`, but the value is dropped — USER.md is pushed
+> empty. Re-`GET` the agent-config after writing and confirm each field is non-empty
+> before pushing; the response body is the only confirmation you get.
+>
+> This matters with `auto_push` enabled: a field left empty here is pushed as empty and
+> **blanks the corresponding file on the instance**. Populate the agent-config fully
+> before the first push, or back the workspace files up on the server first.
+
 **Blocked config paths** (rejected on write): `gateway.auth`, `gateway.controlUi.dangerouslyDisableDeviceAuth`, `tools.exec.host`, `sandbox.mode`, `hooks.allowUnsafeExternalContent`.
 
 ### Push configuration to the instance
 
 ```http
-POST /api/ai-mentor/orgs/<your-org>/claw/mentor-configs/<id>/push-config/
+POST /api/ai-mentor/orgs/<your-org>/mentors/<mentor>/claw-config/push-config/
 ```
 
 **Response (202 Accepted):**
@@ -381,9 +446,9 @@ Here's a full walkthrough: register a server, bind a mentor, configure it, and p
 ### 1. Register the instance
 
 ```bash
-curl -X POST https://platform.ibl.ai/api/ai-mentor/orgs/my-org/claw/instances/ \
+curl -X POST https://platform.iblai.app/api/ai-mentor/orgs/my-org/claw/instances/ \
   -H "Content-Type: application/json" \
-  -H "Authorization: Token YOUR_API_TOKEN" \
+  -H "Authorization: Api-Token YOUR_API_TOKEN" \
   -d '{
     "name": "Production OpenClaw",
     "claw_type": "openclaw",
@@ -396,19 +461,18 @@ curl -X POST https://platform.ibl.ai/api/ai-mentor/orgs/my-org/claw/instances/ \
 ### 2. Test connectivity
 
 ```bash
-curl -X POST https://platform.ibl.ai/api/ai-mentor/orgs/my-org/claw/instances/1/test-connectivity/ \
-  -H "Authorization: Token YOUR_API_TOKEN"
+curl -X POST https://platform.iblai.app/api/ai-mentor/orgs/my-org/claw/instances/1/test-connectivity/ \
+  -H "Authorization: Api-Token YOUR_API_TOKEN"
 # Both checks should pass
 ```
 
 ### 3. Bind a mentor
 
 ```bash
-curl -X POST https://platform.ibl.ai/api/ai-mentor/orgs/my-org/claw/mentor-configs/ \
+curl -X POST https://platform.iblai.app/api/ai-mentor/orgs/my-org/mentors/<mentor>/claw-config/ \
   -H "Content-Type: application/json" \
-  -H "Authorization: Token YOUR_API_TOKEN" \
+  -H "Authorization: Api-Token YOUR_API_TOKEN" \
   -d '{
-    "mentor": "6f29a5eb-c657-4a76-8a19-4ea58175d008",
     "server": 1,
     "enabled": true
   }'
@@ -418,9 +482,9 @@ curl -X POST https://platform.ibl.ai/api/ai-mentor/orgs/my-org/claw/mentor-confi
 ### 4. Configure the agent
 
 ```bash
-curl -X PATCH https://platform.ibl.ai/api/ai-mentor/orgs/my-org/agent-configs/1/ \
+curl -X PATCH https://platform.iblai.app/api/ai-mentor/orgs/my-org/mentors/<mentor>/agent-config/ \
   -H "Content-Type: application/json" \
-  -H "Authorization: Token YOUR_API_TOKEN" \
+  -H "Authorization: Api-Token YOUR_API_TOKEN" \
   -d '{
     "identity": "Name: Study Buddy\nVibe: Friendly and patient tutor",
     "soul": "Always encourage the student. Never give answers directly. Be concise.",
@@ -435,8 +499,8 @@ curl -X PATCH https://platform.ibl.ai/api/ai-mentor/orgs/my-org/agent-configs/1/
 ### 5. Push config
 
 ```bash
-curl -X POST https://platform.ibl.ai/api/ai-mentor/orgs/my-org/claw/mentor-configs/1/push-config/ \
-  -H "Authorization: Token YOUR_API_TOKEN"
+curl -X POST https://platform.iblai.app/api/ai-mentor/orgs/my-org/mentors/<mentor>/claw-config/push-config/ \
+  -H "Authorization: Api-Token YOUR_API_TOKEN"
 # Response: {"queued": true, "message": "Config push queued."}
 ```
 
@@ -478,22 +542,22 @@ All endpoints are tenant-scoped under `/api/ai-mentor/orgs/<org>/`. Responses ar
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `claw/mentor-configs/` | Create binding |
-| GET | `claw/mentor-configs/` | List bindings |
-| GET | `claw/mentor-configs/<id>/` | Retrieve binding |
-| PATCH | `claw/mentor-configs/<id>/` | Update binding |
-| DELETE | `claw/mentor-configs/<id>/` | Delete binding |
-| POST | `claw/mentor-configs/<id>/push-config/` | Push configuration |
+| POST | `mentors/<mentor>/claw-config/` | Create binding |
+| GET | `mentors/<mentor>/claw-config/` | Retrieve binding (`404 {"detail":"Claw config not found"}` = not bound yet) |
+| PATCH | `mentors/<mentor>/claw-config/` | Update binding |
+| DELETE | `mentors/<mentor>/claw-config/` | Delete binding |
+| POST | `mentors/<mentor>/claw-config/push-config/` | Push configuration |
+
+The binding is addressed by the mentor's UUID in the path, so there is no
+collection-level list or numeric-id form.
 
 ### Agent Configs
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `agent-configs/` | Create config |
-| GET | `agent-configs/` | List configs |
-| GET | `agent-configs/<id>/` | Retrieve config |
-| PATCH | `agent-configs/<id>/` | Update config |
-| DELETE | `agent-configs/<id>/` | Delete config |
+| GET | `mentors/<mentor>/agent-config/` | Retrieve config |
+| PATCH | `mentors/<mentor>/agent-config/` | Update config |
+| DELETE | `mentors/<mentor>/agent-config/` | Delete config |
 
 ### Agent Skills
 
