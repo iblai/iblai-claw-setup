@@ -432,7 +432,7 @@ The mentor comes from the path, so it is not in the body. The `skill` value is t
 | `agent-skills/<id>/` | GET/PATCH/DELETE | Manage a skill |
 | `agent-skill-resources/` | GET | List resources. Filters: `file_type`, `skill`. |
 | `agent-skill-resources/<id>/` | GET/PATCH/DELETE | Manage a resource |
-| `mentors/<mentor>/skills/` | GET | List the mentor's assignments |
+| `mentors/<mentor>/skills/` | GET | List the mentor's assignments. Filter: `enabled`. |
 | `mentors/<mentor>/skills/<id>/` | GET/PATCH/DELETE | Manage an assignment |
 
 ---
