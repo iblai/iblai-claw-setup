@@ -16,11 +16,11 @@ Once connected, your claw instance is accessible from all ibl.ai applications: M
 5. Bind mentor              POST mentors/<mentor>/claw-config/
 6. Configure agent          PATCH mentors/<mentor>/agent-config/
 7. Create skills            POST agent-skills/  +  POST agent-skill-resources/
-8. Assign skills            POST mentor-skill-assignments/
+8. Assign skills            POST mentors/<mentor>/skills/
 9. Push config              POST mentors/<mentor>/claw-config/push-config/
 ```
 
-All API calls use base path `/api/ai-mentor/orgs/<your-org>/` and require authentication.
+All API calls use base path `/api/ai-mentor/orgs/<your-org>/` and require authentication. In the mentor-scoped paths, `<mentor>` is the mentor's UUID (a non-UUID value returns 404).
 
 ---
 
@@ -273,8 +273,7 @@ This automatically creates an `AgentConfig` for the mentor if one doesn't exist.
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `mentors/<mentor>/claw-config/` | GET | List bindings. Filter: `enabled`. |
-| `mentors/<mentor>/claw-config/` | GET | Retrieve binding |
+| `mentors/<mentor>/claw-config/` | GET | Retrieve binding (single binding per mentor) |
 | `mentors/<mentor>/claw-config/` | PATCH | Update binding |
 | `mentors/<mentor>/claw-config/` | DELETE | Delete binding |
 | `mentors/<mentor>/claw-config/push-config/` | POST | Push configuration to the instance |
@@ -416,17 +415,16 @@ Content-Type: application/json
 ### Assign skills to mentors
 
 ```http
-POST /api/ai-mentor/orgs/<your-org>/mentor-skill-assignments/
+POST /api/ai-mentor/orgs/<your-org>/mentors/<mentor>/skills/
 Content-Type: application/json
 
 {
-  "mentor": "<mentor-unique-id>",
-  "skill": 1,
+  "skill": "<skill-unique-id>",
   "enabled": true
 }
 ```
 
-A mentor can only be assigned to the same skill once. Enabled assignments are pushed as `skills.entries` when you push config.
+The mentor comes from the path, so it is not in the body. The `skill` value is the skill's UUID (the `unique_id` from the create-skill response), not its numeric id. A mentor can only be assigned to the same skill once. Enabled assignments are pushed as `skills.entries` when you push config.
 
 | Endpoint | Method | Description |
 |---|---|---|
@@ -434,8 +432,8 @@ A mentor can only be assigned to the same skill once. Enabled assignments are pu
 | `agent-skills/<id>/` | GET/PATCH/DELETE | Manage a skill |
 | `agent-skill-resources/` | GET | List resources. Filters: `file_type`, `skill`. |
 | `agent-skill-resources/<id>/` | GET/PATCH/DELETE | Manage a resource |
-| `mentor-skill-assignments/` | GET | List assignments. Filters: `enabled`, `skill`, `mentor`. |
-| `mentor-skill-assignments/<id>/` | GET/PATCH/DELETE | Manage an assignment |
+| `mentors/<mentor>/skills/` | GET | List the mentor's assignments |
+| `mentors/<mentor>/skills/<id>/` | GET/PATCH/DELETE | Manage an assignment |
 
 ---
 
@@ -557,7 +555,6 @@ collection-level list or numeric-id form.
 |---|---|---|
 | GET | `mentors/<mentor>/agent-config/` | Retrieve config |
 | PATCH | `mentors/<mentor>/agent-config/` | Update config |
-| DELETE | `mentors/<mentor>/agent-config/` | Delete config |
 
 ### Agent Skills
 
@@ -583,11 +580,11 @@ collection-level list or numeric-id form.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `mentor-skill-assignments/` | Create assignment |
-| GET | `mentor-skill-assignments/` | List assignments |
-| GET | `mentor-skill-assignments/<id>/` | Retrieve assignment |
-| PATCH | `mentor-skill-assignments/<id>/` | Update assignment |
-| DELETE | `mentor-skill-assignments/<id>/` | Delete assignment |
+| POST | `mentors/<mentor>/skills/` | Create assignment |
+| GET | `mentors/<mentor>/skills/` | List assignments |
+| GET | `mentors/<mentor>/skills/<id>/` | Retrieve assignment |
+| PATCH | `mentors/<mentor>/skills/<id>/` | Update assignment |
+| DELETE | `mentors/<mentor>/skills/<id>/` | Delete assignment |
 
 ### Model Providers
 
